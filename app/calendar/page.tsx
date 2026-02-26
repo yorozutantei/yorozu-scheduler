@@ -74,7 +74,7 @@ type SharedNoteRow = {
 };
 
 type CalendarEventSchedule = {
-  kind: "schedule" as const,
+  kind: "schedule";
   id: number;
   title: string;
   start: Date;
@@ -84,7 +84,7 @@ type CalendarEventSchedule = {
 };
 
 type CalendarEventTodo = {
-  kind: "todo" as const,
+  kind: "todo";
   id: string; // uuid
   title: string;
   start: Date;
