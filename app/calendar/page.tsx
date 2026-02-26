@@ -1262,8 +1262,8 @@ const btnStyle = {
     );
   },
 }}
-          startAccessor="start"
-          endAccessor="end"
+          startAccessor={(e: any) => e.start}
+　　　　　endAccessor={(e: any) => e.end}
           culture="ja"
           selectable
           resizable
