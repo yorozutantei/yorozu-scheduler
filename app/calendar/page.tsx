@@ -84,7 +84,7 @@ type CalendarEventSchedule = {
 };
 
 type CalendarEventTodo = {
-  kind: "todo" as const,
+  kind: "todo";
   id: string; // uuid
   title: string;
   start: Date;
@@ -170,7 +170,7 @@ function safeJsonParse<T>(s: string | null, fallback: T): T {
 
 type UndoPayload =
   | { kind: "schedule"; row: CalendarEventSchedule }
-  | { kind: "todo" as const, row: TodoRow };
+  | { kind: "todo"; row: TodoRow };
 
 export default function CalendarPage() {
   // ✅ Hydration対策：マウント後だけ描画
@@ -270,7 +270,7 @@ export default function CalendarPage() {
         const start = dateStrToLocalStart(t.due_date!);
         const end = addDaysLocal(start, 1);
         return {
-          kind: "todo" as const,
+          kind: "todo";
           id: t.id,
           title: `🧾 ${t.title}`,
           start,
@@ -343,7 +343,7 @@ export default function CalendarPage() {
       const srows = (scheduleData ?? []) as ScheduleRow[];
       const formatted: CalendarEventSchedule[] = srows
         .map((r) => ({
-          kind: "schedule" as const,
+          kind: "schedule";
           id: r.id,
           title: r.title,
           start: new Date(r.start_date),
