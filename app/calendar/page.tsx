@@ -173,6 +173,21 @@ type UndoPayload =
   | { kind: "todo"; row: TodoRow };
 
 export default function CalendarPage() {
+  const [authChecked, setAuthChecked] = useState(false);
+  const [isLoggedIn, setIsLoggedIn] = useState(false);
+useEffect(() => {
+  (async () => {
+    const { data } = await supabase.auth.getSession();
+
+    if (data.session) {
+      setIsLoggedIn(true);
+    }
+
+    console.error("SESSION_CHECK", !!data.session);
+
+    setAuthChecked(true);
+  })();
+}, []);
   // ✅ Hydration対策：マウント後だけ描画
   const [mounted, setMounted] = useState(false);
 
@@ -956,9 +971,28 @@ const btnStyle = {
   background: "#fff",
   fontWeight: 800,
 } as const;
+// 🔒 ログインチェック
+if (!authChecked) return null;
 
+if (!isLoggedIn) {
+  window.location.href = "/login";
+  return null;
+}
   return (
     <div style={{ display: "flex", height: "100vh", overflow: "hidden" }}>
+      <div style={{
+  position: "fixed",
+  top: 10,
+  right: 10,
+  zIndex: 99999,
+  background: "black",
+  color: "white",
+  padding: "6px 10px",
+  fontSize: 12,
+  borderRadius: 6
+}}>
+  authChecked: {String(authChecked)} / isLoggedIn: {String(isLoggedIn)}
+</div>
       {/* 左：サイドバー */}
       {/* 左：サイドバー */}
 <aside
