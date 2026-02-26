@@ -1,0 +1,143 @@
+@import "tailwindcss";
+
+:root {
+  --background: #ffffff;
+  --foreground: #171717;
+}
+
+@theme inline {
+  --color-background: var(--background);
+  --color-foreground: var(--foreground);
+  --font-sans: var(--font-geist-sans);
+  --font-mono: var(--font-geist-mono);
+}
+
+@media (prefers-color-scheme: dark) {
+  :root {
+    --background: #0a0a0a;
+    --foreground: #ededed;
+  }
+}
+
+body {
+  background: var(--background);
+  color: var(--foreground);
+  font-family: Arial, Helvetica, sans-serif;
+}
+
+/* ===== react-big-calendar beautify ===== */
+.rbc-calendar {
+  font-family: ui-sans-serif, system-ui, -apple-system, "Segoe UI", Roboto, "Noto Sans JP", "Hiragino Kaku Gothic ProN",
+    "Yu Gothic", "Meiryo", Arial, sans-serif;
+}
+
+.rbc-toolbar {
+  padding: 10px 12px;
+  border: 1px solid #eee;
+  border-radius: 14px;
+  background: #fff;
+  box-shadow: 0 10px 25px rgba(0, 0, 0, 0.06);
+  margin-bottom: 12px;
+}
+
+.rbc-toolbar button {
+  border: 1px solid #e5e7eb;
+  background: #fff;
+  border-radius: 10px;
+  padding: 8px 10px;
+  font-weight: 800;
+}
+
+.rbc-toolbar button.rbc-active {
+  background: #eef2ff;
+  border-color: #c7d2fe;
+}
+
+.rbc-month-view,
+.rbc-time-view {
+  border: 1px solid #eee;
+  border-radius: 16px;
+  overflow: hidden;
+  background: #fff;
+  box-shadow: 0 12px 30px rgba(0, 0, 0, 0.06);
+}
+
+.rbc-header {
+  padding: 10px 6px;
+  font-weight: 900;
+  border-bottom: 1px solid #eee;
+  background: #fafafa;
+}
+
+.rbc-month-row + .rbc-month-row {
+  border-top: 1px solid #f1f5f9;
+}
+
+.rbc-day-bg + .rbc-day-bg {
+  border-left: 1px solid #f1f5f9;
+}
+
+.rbc-event {
+  border-radius: 10px;
+  border: none;
+  padding: 4px 6px;
+  box-shadow: 0 6px 14px rgba(0, 0, 0, 0.08);
+}
+
+.rbc-event-label {
+  font-weight: 800;
+  opacity: 0.85;
+}
+
+.rbc-off-range-bg {
+  background: #fbfbfb;
+}
+
+.rbc-today {
+  background: rgba(255, 223, 100, 0.14);
+}
+/* ===== Button hover effect ===== */
+button {
+  transition: transform 0.08s ease, box-shadow 0.12s ease, background 0.12s ease;
+}
+
+button:hover {
+  transform: translateY(-1px);
+  box-shadow: 0 10px 18px rgba(0,0,0,0.08);
+}
+
+button:active {
+  transform: translateY(0px);
+  box-shadow: none;
+}
+@keyframes slideIn {
+  from {
+    transform: translateX(100%);
+  }
+  to {
+    transform: translateX(0);
+  }
+}
+@keyframes fadeInBackdrop {
+  from { opacity: 0; }
+  to   { opacity: 1; }
+}
+input:focus,
+textarea:focus,
+select:focus {
+  border-color: #2563eb;
+  box-shadow: 0 0 0 3px rgba(37, 99, 235, 0.2);
+  outline: none;
+  transition: all 0.15s ease;
+}
+input,
+textarea,
+select {
+  transition: all 0.15s ease;
+}
+
+input:focus,
+textarea:focus,
+select:focus {
+  transform: translateY(-1px);
+}
