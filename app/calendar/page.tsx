@@ -74,7 +74,7 @@ type SharedNoteRow = {
 };
 
 type CalendarEventSchedule = {
-  kind: "schedule";
+  kind: "schedule" as const,
   id: number;
   title: string;
   start: Date;
@@ -84,7 +84,7 @@ type CalendarEventSchedule = {
 };
 
 type CalendarEventTodo = {
-  kind: "todo";
+  kind: "todo" as const,
   id: string; // uuid
   title: string;
   start: Date;
@@ -169,8 +169,8 @@ function safeJsonParse<T>(s: string | null, fallback: T): T {
 }
 
 type UndoPayload =
-  | { kind: "schedule"; row: CalendarEventSchedule }
-  | { kind: "todo"; row: TodoRow };
+  | { kind: "schedule" as const, row: CalendarEventSchedule }
+  | { kind: "todo" as const, row: TodoRow };
 
 export default function CalendarPage() {
   // ✅ Hydration対策：マウント後だけ描画
@@ -270,7 +270,7 @@ export default function CalendarPage() {
         const start = dateStrToLocalStart(t.due_date!);
         const end = addDaysLocal(start, 1);
         return {
-          kind: "todo";
+          kind: "todo" as const,
           id: t.id,
           title: `🧾 ${t.title}`,
           start,
@@ -343,7 +343,7 @@ export default function CalendarPage() {
       const srows = (scheduleData ?? []) as ScheduleRow[];
       const formatted: CalendarEventSchedule[] = srows
         .map((r) => ({
-          kind: "schedule";
+          kind: "schedule" as const,
           id: r.id,
           title: r.title,
           start: new Date(r.start_date),
