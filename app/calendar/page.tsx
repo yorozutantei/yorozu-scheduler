@@ -169,8 +169,8 @@ function safeJsonParse<T>(s: string | null, fallback: T): T {
 }
 
 type UndoPayload =
-  | { kind: "schedule" as const, row: CalendarEventSchedule }
-  | { kind: "todo" as const, row: TodoRow };
+  | { kind: "schedule"; row: CalendarEventSchedule }
+  | { kind: "todo"; row: TodoRow };
 
 export default function CalendarPage() {
   // ✅ Hydration対策：マウント後だけ描画
