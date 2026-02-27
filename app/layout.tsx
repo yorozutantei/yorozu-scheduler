@@ -26,16 +26,29 @@ export default function RootLayout({
     <html lang="en">
       <body
         className={`${geistSans.variable} ${geistMono.variable} antialiased`}
-      ><nav style={{
-  display: "flex",
-  gap: 12,
-  padding: 12,
-  borderBottom: "1px solid #ddd"
-}}>
-  <a href="/calendar">📅 カレンダー</a>
-  <a href="/todo">✅ ToDo</a>
-</nav>
-        {children}
+        style={{
+          height: "100dvh",
+          display: "flex",
+          flexDirection: "column",
+        }}
+      >
+        <nav
+          style={{
+            display: "flex",
+            gap: 12,
+            padding: 12,
+            borderBottom: "1px solid #ddd",
+            flex: "0 0 auto",
+          }}
+        >
+          <a href="/calendar">📅 カレンダー</a>
+          <a href="/todo">✅ ToDo</a>
+        </nav>
+
+        {/* ★ ここが超重要：children を「残り全部」にする */}
+        <div style={{ flex: "1 1 auto", minHeight: 0 }}>
+          {children}
+        </div>
       </body>
     </html>
   );

@@ -141,3 +141,49 @@ textarea:focus,
 select:focus {
   transform: translateY(-1px);
 }
+html, body {
+  height: 100%;
+}
+
+.rbc-calendar {
+  height: 100% !important;
+  min-height: 520px;
+}
+
+/* スマホで潰れやすいので、最低高さを強制 */
+@media (max-width: 767px) {
+  .rbc-calendar {
+    min-height: 620px;
+  }
+}
+.rbc-calendar {
+  height: 100% !important;
+}
+html,
+body {
+  height: 100%;
+  margin: 0;
+  padding: 0;
+}
+
+/* iOS Safari で dvh が崩れるのを防ぎやすい */
+body {
+  min-height: 100dvh;
+  overflow-x: hidden; /* 横だけ止める */
+}
+/* DnD がタッチを握って横スワイプが死ぬ端末があるので許可する */
+.rbc-calendar,
+.rbc-time-view,
+.rbc-month-view {
+  touch-action: pan-x pan-y;
+}
+/* react-big-calendar モバイルでスクロールが死ぬ対策 */
+.rbc-time-content {
+  overflow-y: auto !important;
+  -webkit-overflow-scrolling: touch;
+}
+
+.rbc-time-view,
+.rbc-month-view {
+  touch-action: pan-x pan-y;
+}

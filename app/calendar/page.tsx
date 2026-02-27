@@ -15,7 +15,7 @@ import {
   endOfMonth,
   addYears,
 } from "date-fns";
-import { ja } from "date-fns/locale/ja";
+import ja from "date-fns/locale/ja";
 
 import { createClient } from "@supabase/supabase-js";
 
@@ -107,17 +107,13 @@ const localizer = dateFnsLocalizer({
 });
 
 const DnDCalendar = withDragAndDrop(RBCalendar);
+
 function DateHeader({ date }: { date: Date }) {
   const dow = date.getDay(); // 0=日, 6=土
   const color = dow === 0 ? "#dc2626" : dow === 6 ? "#2563eb" : undefined;
   return <span style={{ color, fontWeight: 800 }}>{date.getDate()}</span>;
 }
 
-function WeekdayHeader({ date, label }: { date: Date; label: string }) {
-  const dow = date.getDay();
-  const color = dow === 0 ? "#dc2626" : dow === 6 ? "#2563eb" : undefined;
-  return <span style={{ color, fontWeight: 800 }}>{label}</span>;
-}
 const TODO_DONE_COLOR = "#9CA3AF";
 const DEFAULT_COLOR = "#3174ad";
 const TODAY_CELL_BG = "rgba(255, 223, 100, 0.18)";
@@ -126,7 +122,6 @@ const OVERDUE_BORDER = "2px solid rgba(220, 38, 38, 0.95)";
 function pad2(n: number) {
   return String(n).padStart(2, "0");
 }
-
 function toLocalInputValue(d: Date) {
   return `${d.getFullYear()}-${pad2(d.getMonth() + 1)}-${pad2(d.getDate())}T${pad2(
     d.getHours()
@@ -135,30 +130,25 @@ function toLocalInputValue(d: Date) {
 function fromLocalInputValue(v: string) {
   return new Date(v);
 }
-
 function monthKey(d = new Date()) {
   const m = startOfMonth(d);
   return `${m.getFullYear()}-${pad2(m.getMonth() + 1)}-01`;
 }
-
 function dateStrToLocalStart(d: string) {
   const [y, m, day] = d.split("-").map((x) => Number(x));
   return new Date(y, m - 1, day, 0, 0, 0, 0);
 }
-
 function addDaysLocal(date: Date, days: number) {
   const x = new Date(date);
   x.setDate(x.getDate() + days);
   return x;
 }
-
 function toYmdLocal(d: Date) {
   return `${d.getFullYear()}-${pad2(d.getMonth() + 1)}-${pad2(d.getDate())}`;
 }
 function todayYmd() {
   return toYmdLocal(new Date());
 }
-
 function safeJsonParse<T>(s: string | null, fallback: T): T {
   if (!s) return fallback;
   try {
@@ -173,26 +163,86 @@ type UndoPayload =
   | { kind: "todo"; row: TodoRow };
 
 export default function CalendarPage() {
+  // ===== 横スワイプ用（スマホ） =====
+  const scrollerRef = useRef<HTMLDivElement>(null);
+  const SIDEBAR_W = 360;
+  const CALENDAR_MIN_W = 980;
+  // ★ 横スワイプ制御用
+const swipeRef = useRef({
+  active: false,
+  startX: 0,
+  startY: 0,
+  startLeft: 0,
+  locked: false,
+});
+
+function onTouchStartScroller(e: React.TouchEvent<HTMLDivElement>) {
+  const el = scrollerRef.current;
+  if (!el) return;
+
+  const t = e.touches[0];
+  swipeRef.current.active = true;
+  swipeRef.current.locked = false;
+  swipeRef.current.startX = t.clientX;
+  swipeRef.current.startY = t.clientY;
+  swipeRef.current.startLeft = el.scrollLeft;
+}
+
+function onTouchMoveScroller(e: React.TouchEvent<HTMLDivElement>) {
+  const el = scrollerRef.current;
+  if (!el) return;
+  if (!swipeRef.current.active) return;
+
+  const t = e.touches[0];
+  const dx = t.clientX - swipeRef.current.startX;
+  const dy = t.clientY - swipeRef.current.startY;
+
+  if (!swipeRef.current.locked) {
+    if (Math.abs(dx) > 10 && Math.abs(dx) > Math.abs(dy) * 1.2) {
+      swipeRef.current.locked = true;
+    } else {
+      return;
+    }
+  }
+
+  e.preventDefault();
+  el.scrollLeft = swipeRef.current.startLeft - dx;
+}
+
+function onTouchEndScroller() {
+  swipeRef.current.active = false;
+  swipeRef.current.locked = false;
+}
+
+  const scrollToCalendar = () => scrollerRef.current?.scrollTo({ left: SIDEBAR_W, behavior: "smooth" });
+  const scrollToSidebar = () => scrollerRef.current?.scrollTo({ left: 0, behavior: "smooth" });
+
+  // ===== Auth =====
   const [authChecked, setAuthChecked] = useState(false);
   const [isLoggedIn, setIsLoggedIn] = useState(false);
-useEffect(() => {
-  (async () => {
-    const { data } = await supabase.auth.getSession();
 
-    if (data.session) {
-      setIsLoggedIn(true);
-    }
+  useEffect(() => {
+    (async () => {
+      const { data } = await supabase.auth.getSession();
+      setIsLoggedIn(!!data.session);
+      setAuthChecked(true);
+    })();
+  }, []);
 
-    console.error("SESSION_CHECK", !!data.session);
-
-    setAuthChecked(true);
-  })();
-}, []);
   // ✅ Hydration対策：マウント後だけ描画
   const [mounted, setMounted] = useState(false);
 
   // ✅ 表示中の日付（月またぎ移動のため）
   const [currentDate, setCurrentDate] = useState<Date>(new Date());
+
+  // ★スマホ判定（DnDがスクロールを邪魔する対策）
+const isMobile = useMemo(() => {
+  if (!mounted) return false;
+  return window.matchMedia("(max-width: 767px)").matches;
+}, [mounted]);
+
+// ★スマホは通常カレンダー、PCはDnDカレンダー
+const CalendarComp: any = isMobile ? RBCalendar : DnDCalendar;
 
   // ===== 予定 =====
   const [scheduleEvents, setScheduleEvents] = useState<CalendarEventSchedule[]>([]);
@@ -335,9 +385,62 @@ useEffect(() => {
     })();
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
+  useEffect(() => {
+  const el = scrollerRef.current;
+  if (!el) return;
+
+  const state = swipeRef.current;
+
+  const onStart = (e: TouchEvent) => {
+    const t = e.touches[0];
+    if (!t) return;
+
+    state.active = true;
+    state.locked = false;
+    state.startX = t.clientX;
+    state.startY = t.clientY;
+    state.startLeft = el.scrollLeft;
+  };
+
+  const onMove = (e: TouchEvent) => {
+    if (!state.active) return;
+    const t = e.touches[0];
+    if (!t) return;
+
+    const dx = t.clientX - state.startX;
+    const dy = t.clientY - state.startY;
+
+    if (!state.locked) {
+      if (Math.abs(dx) > 10 && Math.abs(dx) > Math.abs(dy) * 1.2) {
+        state.locked = true;
+      } else {
+        return;
+      }
+    }
+
+    e.preventDefault();
+    el.scrollLeft = state.startLeft - dx;
+  };
+
+  const onEnd = () => {
+    state.active = false;
+    state.locked = false;
+  };
+
+  el.addEventListener("touchstart", onStart, { passive: true });
+  el.addEventListener("touchmove", onMove, { passive: false }); // ★重要
+  el.addEventListener("touchend", onEnd, { passive: true });
+  el.addEventListener("touchcancel", onEnd, { passive: true });
+
+  return () => {
+    el.removeEventListener("touchstart", onStart);
+    el.removeEventListener("touchmove", onMove);
+    el.removeEventListener("touchend", onEnd);
+    el.removeEventListener("touchcancel", onEnd);
+  };
+}, []);
 
   // ====== 2) 表示中日付に合わせて「向こう1年」範囲を取得 ======
-  // 例：currentDate を中心に、過去1年〜未来1年を取得
   useEffect(() => {
     if (!mounted) return;
 
@@ -387,7 +490,6 @@ useEffect(() => {
   }, [currentDate, mounted]);
 
   // ====== 3) 月間（目標/やるべきこと）: 表示中の月に紐づけ ======
-  //  - 月を移動したらその月の下書き→DBをロード
   useEffect(() => {
     if (!mounted) return;
 
@@ -413,7 +515,6 @@ useEffect(() => {
 
       if (monthlyErr) console.error("monthly_dashboard取得エラー:", monthlyErr);
 
-      // 下書きが空ならDBを反映（下書き優先）
       if (monthlyData) {
         const row = monthlyData as MonthlyRow;
 
@@ -463,9 +564,7 @@ useEffect(() => {
         updated_at: new Date().toISOString(),
       };
 
-      const { error } = await supabase
-        .from("monthly_dashboard")
-        .upsert(payload, { onConflict: "month" });
+      const { error } = await supabase.from("monthly_dashboard").upsert(payload, { onConflict: "month" });
 
       if (error) {
         console.error("monthly autosave失敗:", error);
@@ -557,9 +656,7 @@ useEffect(() => {
         description: r.description ?? "",
       };
 
-      setScheduleEvents((prev) =>
-        [...prev, newEvent].sort((a, b) => a.start.getTime() - b.start.getTime())
-      );
+      setScheduleEvents((prev) => [...prev, newEvent].sort((a, b) => a.start.getTime() - b.start.getTime()));
       closeModal();
       return;
     }
@@ -623,9 +720,7 @@ useEffect(() => {
 
     const p = undo.payload;
     if (p.kind === "schedule") {
-      setScheduleEvents((prev) =>
-        [...prev, p.row].sort((a, b) => a.start.getTime() - b.start.getTime())
-      );
+      setScheduleEvents((prev) => [...prev, p.row].sort((a, b) => a.start.getTime() - b.start.getTime()));
     } else {
       setTodos((prev) => [p.row, ...prev]);
     }
@@ -847,10 +942,10 @@ useEffect(() => {
       .order("updated_at", { ascending: false });
 
     if (error) {
-  console.error("shared_notes insert失敗:", error, (error as any)?.message, (error as any)?.details, (error as any)?.hint, (error as any)?.code);
-  alert(`共有ノート追加失敗: ${(error as any)?.message ?? "Console確認"}`);
-  return;
-}
+      console.error("shared_notes select失敗:", error);
+      alert(`共有ノート取得失敗: ${(error as any)?.message ?? "Console確認"}`);
+      return;
+    }
     setNotes((data ?? []) as SharedNoteRow[]);
   }
 
@@ -858,17 +953,14 @@ useEffect(() => {
     setNotesOpen(true);
     loadNotes();
   }
-
   function closeNotes() {
     setNotesOpen(false);
   }
-
   function startNewNote() {
     setNoteEditingId(null);
     setNoteTitle("");
     setNoteContent("");
   }
-
   function startEditNote(n: SharedNoteRow) {
     setNoteEditingId(n.id);
     setNoteTitle(n.title ?? "");
@@ -938,803 +1030,812 @@ useEffect(() => {
 
   // ✅ Hydration対策
   if (!mounted) return null;
+
+  // 🔒 ログインチェック
+  if (!authChecked) return null;
+  if (!isLoggedIn) {
+    // render中にlocation書き換えは荒いけど、いったん初心者向けにそのまま
+    window.location.href = "/login";
+    return null;
+  }
+
   const fieldStyle = {
-  padding: 10,
-  borderRadius: 12,
-  border: "1px solid #e5e7eb",
-  background: "#fff",
-  outline: "none",
-} as const;
+    padding: 10,
+    borderRadius: 12,
+    border: "1px solid #e5e7eb",
+    background: "#fff",
+    outline: "none",
+    width: "100%",
+  } as const;
 
-const labelTitleStyle = {
-  fontWeight: 800,
-  fontSize: 12,
-  opacity: 0.8,
-} as const;
   const cardStyle = {
-  background: "#fff",
-  border: "1px solid #eee",
-  borderRadius: 14,
-  padding: 12,
-  boxShadow: "0 10px 25px rgba(0,0,0,0.05)",
-} as const;
-
-const cardTitleStyle = {
-  fontWeight: 900,
-  marginBottom: 8,
-} as const;
-
-const btnStyle = {
-  padding: "8px 10px",
-  borderRadius: 10,
-  border: "1px solid #e5e7eb",
-  background: "#fff",
-  fontWeight: 800,
-} as const;
-// 🔒 ログインチェック
-if (!authChecked) return null;
-
-if (!isLoggedIn) {
-  window.location.href = "/login";
-  return null;
-}
-  return (
-    <div style={{ display: "flex", height: "100vh", overflow: "hidden" }}>
-      <div style={{
-  position: "fixed",
-  top: 10,
-  right: 10,
-  zIndex: 99999,
-  background: "black",
-  color: "white",
-  padding: "6px 10px",
-  fontSize: 12,
-  borderRadius: 6
-}}>
-  authChecked: {String(authChecked)} / isLoggedIn: {String(isLoggedIn)}
-</div>
-      {/* 左：サイドバー */}
-      {/* 左：サイドバー */}
-<aside
-  style={{
-    width: 360,
-    borderRight: "1px solid #eee",
+    background: "#fff",
+    border: "1px solid #eee",
+    borderRadius: 14,
     padding: 12,
-    overflow: "auto",
-    background: "#fafafa",
-  }}
->
-  {/* 🔥 今日 */}
-  <div style={{ ...cardStyle, marginBottom: 12 }}>
-    <div style={cardTitleStyle}>🔥 今日（{todayYmd()}）</div>
+    boxShadow: "0 10px 25px rgba(0,0,0,0.05)",
+  } as const;
 
-    <div style={{ fontSize: 12, opacity: 0.75, marginBottom: 8 }}>
-      期限切れ：{overdueCount} 件 / 今日：{todayOpenTodos.length} 件
-    </div>
+  const cardTitleStyle = {
+    fontWeight: 900,
+    marginBottom: 8,
+  } as const;
 
-    {todayOpenTodos.length === 0 ? (
-      <div style={{ opacity: 0.6, fontSize: 13 }}>今日のToDoはありません</div>
-    ) : (
-      <div style={{ display: "grid", gap: 8 }}>
-        {todayOpenTodos.map((t) => (
-          <div
-            key={t.id}
-            style={{
-              border: "1px solid #eee",
-              borderRadius: 12,
-              padding: 10,
-              background: "#fff",
-              display: "grid",
-              gap: 6,
-            }}
-          >
-            <div style={{ fontWeight: 900 }}>{t.title}</div>
-            <div style={{ fontSize: 12, opacity: 0.7 }}>{t.assignee ?? "未設定"}</div>
-            <div style={{ display: "flex", gap: 8, justifyContent: "flex-end" }}>
-              <button onClick={() => toggleTodoQuick(t.id, t.status)} style={btnStyle}>
-                完了
-              </button>
-              <button
-                onClick={() => openTodoEditModalById(t.id)}
-                style={{ ...btnStyle, background: "#f3f4f6" }}
-              >
-                編集
-              </button>
-            </div>
-          </div>
-        ))}
-      </div>
-    )}
-  </div>
+  const btnStyle = {
+    padding: "8px 10px",
+    borderRadius: 10,
+    border: "1px solid #e5e7eb",
+    background: "#fff",
+    fontWeight: 800,
+    cursor: "pointer",
+  } as const;
 
-  {/* 📌 目標 */}
-  <div style={{ ...cardStyle, marginBottom: 12 }}>
-    <div style={cardTitleStyle}>📌 今月の目標（{monthKey(currentDate).slice(0, 7)}）</div>
-    <textarea
-      value={monthlyGoal}
-      onChange={(e) => setMonthlyGoal(e.target.value)}
-      style={{
-        width: "100%",
-        minHeight: 90,
-        padding: 10,
-        resize: "vertical",
-        borderRadius: 12,
-        border: "1px solid #e5e7eb",
-      }}
-      placeholder="例：毎日ショート投稿 / 配信の安定化 / 体調管理…"
-    />
-  </div>
-
-  {/* ✅ 今月やるべきこと */}
-  <div style={{ ...cardStyle, marginBottom: 12 }}>
-    <div style={cardTitleStyle}>✅ 今月やるべきこと（{monthKey(currentDate).slice(0, 7)}）</div>
-
-    <div style={{ display: "flex", gap: 8 }}>
-      <input
-        value={mustNewText}
-        onChange={(e) => setMustNewText(e.target.value)}
+  return (
+    <div style={{ height: "100%", width: "100%", overflow: "hidden", background: "#fff" }}>
+      {/* ✅ “横スクロールを担当する層” */}
+      <div
+        ref={scrollerRef}
         style={{
-          flex: 1,
-          padding: 10,
-          borderRadius: 12,
-          border: "1px solid #e5e7eb",
-        }}
-        placeholder="例：サムネテンプレ整備"
-      />
-      <button
-        onClick={addMustItem}
-        style={{
-          padding: "10px 12px",
-          borderRadius: 12,
-          border: "1px solid #e5e7eb",
+          height: "100%",
+          width: "100%",
+          overflowX: "scroll",
+          overflowY: "hidden",
+          WebkitOverflowScrolling: "touch",
+          overscrollBehaviorX: "contain",
+          touchAction: "pan-x pan-y",
           background: "#fff",
-          fontWeight: 900,
         }}
       >
-        追加
-      </button>
-    </div>
-
-    <div style={{ marginTop: 10, display: "grid", gap: 8 }}>
-      {monthlyMust.length === 0 && <div style={{ opacity: 0.6 }}>まだありません</div>}
-      {monthlyMust.map((m) => (
+        {/* ✅ 中身を“横に長い板”にする（ここが最重要） */}
         <div
-          key={m.id}
           style={{
             display: "flex",
-            alignItems: "center",
-            gap: 8,
-            padding: 10,
-            border: "1px solid #eee",
-            borderRadius: 12,
-            background: "#fff",
+            height: "100%",
+            width: SIDEBAR_W + CALENDAR_MIN_W, // 1340px
+            minWidth: "100%", // PCでは画面幅以上
           }}
         >
-          <input type="checkbox" checked={m.done} onChange={() => toggleMustItem(m.id)} />
-          <div
+          {/* 左：サイドバー */}
+          <aside
             style={{
-              flex: 1,
-              textDecoration: m.done ? "line-through" : "none",
-              opacity: m.done ? 0.6 : 1,
-              fontWeight: 700,
+              width: SIDEBAR_W,
+              minWidth: SIDEBAR_W,
+              borderRight: "1px solid #eee",
+              padding: 12,
+              overflow: "auto",
+              background: "#fafafa",
+              touchAction: "pan-y",
             }}
           >
-            {m.text}
-          </div>
-          <button
-            onClick={() => deleteMustItem(m.id)}
-            style={{
-              padding: "6px 10px",
-              borderRadius: 10,
-              border: "1px solid #e5e7eb",
-              background: "#fff",
-              fontWeight: 900,
-            }}
-          >
-            ✕
-          </button>
-        </div>
-      ))}
-    </div>
-  </div>
+            {/* 🔥 今日 */}
+            <div style={{ ...cardStyle, marginBottom: 12 }}>
+              <div style={cardTitleStyle}>🔥 今日（{todayYmd()}）</div>
 
-  {/* フィルター */}
-  <div style={{ ...cardStyle, marginBottom: 12 }}>
-    <div style={cardTitleStyle}>表示フィルター</div>
-
-    <div style={{ display: "grid", gap: 8 }}>
-      <div style={{ display: "flex", gap: 6 }}>
-        <button
-          onClick={() => setShowType("all")}
-          style={{ ...btnStyle, background: showType === "all" ? "#eef2ff" : "#fff" }}
-        >
-          全部
-        </button>
-        <button
-          onClick={() => setShowType("schedule")}
-          style={{ ...btnStyle, background: showType === "schedule" ? "#eef2ff" : "#fff" }}
-        >
-          予定だけ
-        </button>
-        <button
-          onClick={() => setShowType("todo")}
-          style={{ ...btnStyle, background: showType === "todo" ? "#eef2ff" : "#fff" }}
-        >
-          ToDoだけ
-        </button>
-      </div>
-
-      <label style={{ display: "flex", alignItems: "center", gap: 8, fontSize: 13 }}>
-        <input type="checkbox" checked={hideDoneTodos} onChange={(e) => setHideDoneTodos(e.target.checked)} />
-        完了ToDoを非表示
-      </label>
-
-      <div style={{ marginTop: 4, fontWeight: 900, fontSize: 13 }}>メンバー表示</div>
-      <div style={{ display: "grid", gap: 6 }}>
-        {members.length === 0 ? (
-          <div style={{ opacity: 0.6, fontSize: 13 }}>membersが0件の場合はRLS/seedを確認</div>
-        ) : (
-          members.map((m) => (
-            <label key={m.id} style={{ display: "flex", alignItems: "center", gap: 8, fontSize: 13 }}>
-              <input
-                type="checkbox"
-                checked={memberVisible[m.name] ?? true}
-                onChange={(e) =>
-                  setMemberVisible((prev) => ({
-                    ...prev,
-                    [m.name]: e.target.checked,
-                  }))
-                }
-              />
-              <span
-                style={{
-                  width: 10,
-                  height: 10,
-                  borderRadius: 999,
-                  background: m.color || DEFAULT_COLOR,
-                  display: "inline-block",
-                }}
-              />
-              {m.name}
-            </label>
-          ))
-        )}
-      </div>
-    </div>
-  </div>
-
-  {/* 表示（月/週/日） */}
-  <div style={{ ...cardStyle, marginBottom: 12 }}>
-    <div style={cardTitleStyle}>表示</div>
-    <div style={{ display: "flex", gap: 6 }}>
-      <button onClick={() => setView("month")} style={btnStyle}>
-        月
-      </button>
-      <button onClick={() => setView("week")} style={btnStyle}>
-        週
-      </button>
-      <button onClick={() => setView("day")} style={btnStyle}>
-        日
-      </button>
-    </div>
-  </div>
-</aside>
-
-      {/* 右：カレンダー */}
-      <main style={{ flex: 1, minWidth: 0, padding: 12, position: "relative" }}>
-        <div style={{ marginBottom: 10, display: "flex", gap: 10, alignItems: "center" }}>
-          <div style={{ fontWeight: 700 }}>メンバー：</div>
-          <select
-            value={selectedMember}
-            onChange={(e) => setSelectedMember(e.target.value)}
-            style={{ padding: 6, minWidth: 180 }}
-          >
-            {members.length === 0 ? (
-              <option value="">（membersが0件 / RLS確認）</option>
-            ) : (
-              members.map((m) => (
-                <option key={m.id} value={m.name}>
-                  {m.name}
-                </option>
-              ))
-            )}
-          </select>
-
-          {/* ToDo担当（空白追加時の担当） */}
-          <div style={{ marginLeft: 10, fontWeight: 700 }}>ToDo担当：</div>
-          <select
-            value={todoAssignee}
-            onChange={(e) => setTodoAssignee(e.target.value)}
-            style={{ padding: 6, minWidth: 180 }}
-          >
-            {members.length === 0 ? (
-              <option value="未設定">未設定</option>
-            ) : (
-              members.map((m) => (
-                <option key={m.id} value={m.name}>
-                  {m.name}
-                </option>
-              ))
-            )}
-          </select>
-        </div>
-
-        <DnDCalendar
-          localizer={localizer}
-          events={allEvents}
-          components={{
-  month: { dateHeader: DateHeader },
-
-  event: ({ event }: any) => {
-
-    const start = new Date(event.start);
-
-    const hhmm = start.toLocaleTimeString("ja-JP", {
-      hour: "2-digit",
-      minute: "2-digit",
-    });
-
-    const isTodo = event.kind === "todo";
-
-    return (
-      <div
-        style={{
-          display: "flex",
-          alignItems: "center",
-          gap: 6,
-          fontWeight: 800,
-          fontSize: 12,
-          overflow: "hidden",
-        }}
-      >
-        <span>{isTodo ? "🧾" : "●"}</span>
-
-        {!isTodo && <span>{hhmm}</span>}
-
-        <span>{event.title}</span>
-      </div>
-    );
-  },
-}}
-          startAccessor={(e: any) => e.start}
-　　　　　endAccessor={(e: any) => e.end}
-          culture="ja"
-          selectable
-          resizable
-          views={["month", "week", "day", "agenda"]}
-          view={view}
-          onView={(v) => setView(v)}
-          date={currentDate}
-          onNavigate={(d) => setCurrentDate(d)}
-          onSelectSlot={onSelectSlot}
-          onSelectEvent={onSelectEvent}
-          onEventDrop={onEventDrop}
-          onEventResize={onEventResize}
-          dayPropGetter={(date) => {
-            const isToday = toYmdLocal(date) === todayYmd();
-            if (!isToday) return {};
-            return { style: { background: TODAY_CELL_BG } };
-          }}
-          eventPropGetter={(event: any) => {
-            const ev = event as CalendarEvent;
-
-            if (ev.kind === "todo") {
-              const isToday = ev.due_date === todayYmd();
-              const isOverdue = ev.status !== "done" && ev.due_date < todayYmd();
-              const bg = ev.status === "done" ? TODO_DONE_COLOR : getMemberColor(ev.assignee || "未設定");
-
-              return {
-                style: {
-                  backgroundColor: bg,
-                  opacity: ev.status === "done" ? 0.55 : 0.95,
-                  border: isOverdue ? OVERDUE_BORDER : isToday ? "3px solid #111" : "1px solid transparent",
-                  boxShadow: isToday ? "0 0 0 2px rgba(0,0,0,0.12)" : "none",
-                  fontWeight: isToday ? 900 : 700,
-                },
-              };
-            }
-
-            const bg = getMemberColor(ev.member);
-            return { style: { backgroundColor: bg } };
-          }}
-        />
-
-        {/* 共有ノートボタン（枠外に小さめ固定） */}
-        <button
-          onClick={openNotes}
-          title="共有ノート"
-          style={{
-            position: "fixed",
-            right: 14,
-            bottom: 14,
-            zIndex: 999999,
-            width: 44,
-            height: 44,
-            borderRadius: 999,
-            border: "1px solid #e5e7eb",
-            background: "#fff",
-            boxShadow: "0 10px 25px rgba(0,0,0,0.12)",
-            fontSize: 18,
-            cursor: "pointer",
-          }}
-        >
-          📝
-        </button>
-
-        {/* 予定モーダル */}
-        {modalOpen && (
-          <div
-            style={{
-              position: "fixed",
-              inset: 0,
-              background: "rgba(0,0,0,0.35)",
-              animation: "fadeInBackdrop 0.15s ease",
-              display: "flex",
-              alignItems: "stretch",
-              justifyContent: "flex-end",
-              padding: 16,
-              zIndex: 9999,
-            }}
-            onClick={closeModal}
-          >
-            <div
-              onClick={(e) => e.stopPropagation()}
-              style={{
-                width: 420,
-                height: "100%",
-                background: "rgba(255,255,255,0.96)",
-                backdropFilter: "blur(8px)",
-                borderRadius: 16,
-                animation: "slideIn 0.2s ease",
-                border: "1px solid rgba(229,231,235,0.9)",
-                boxShadow: "-18px 0 45px rgba(0,0,0,0.18)",
-                overflow: "auto",
-                padding: 14,                            // パネル内余白
-                display: "flex",
-                flexDirection: "column",
-                gap: 12,
-              }}
-            >
-              <div
-                style={{
-                  display: "flex",
-                  justifyContent: "space-between",
-                  alignItems: "center",
-                  gap: 12,
-                  paddingBottom: 10,
-                  borderBottom: "1px solid rgba(229,231,235,0.9)",
-                }}
-              >
-                <div style={{ fontWeight: 900, fontSize: 15, letterSpacing: 0.2 }}>
-  　　　　　　　　　{editingId === null ? "予定を追加" : "予定を編集"}
-　　　　　　　　　</div>
-                <button onClick={closeModal} style={{ padding: "6px 10px" }}>
-                  ✕
-                </button>
+              <div style={{ fontSize: 12, opacity: 0.75, marginBottom: 8 }}>
+                期限切れ：{overdueCount} 件 / 今日：{todayOpenTodos.length} 件
               </div>
 
-              <div style={{ display: "grid", gap: 10, marginTop: 12 }}>
-                <label style={{ display: "grid", gap: 6 }}>
-                  <div style={labelTitleStyle}>タイトル</div>
-                  <input value={formTitle} onChange={(e) => setFormTitle(e.target.value)} style={fieldStyle} />
-                </label>
-
-                <label style={{ display: "grid", gap: 6 }}>
-                  <div style={{ fontWeight: 700 }}>内容（メモ）</div>
-                  <textarea
-                    value={formDesc}
-                    onChange={(e) => setFormDesc(e.target.value)}
-                    style={{ padding: 8, minHeight: 90, resize: "vertical" }}
-                  />
-                </label>
-
-                <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 10 }}>
-                  <label style={{ display: "grid", gap: 6 }}>
-                    <div style={{ fontWeight: 700 }}>開始</div>
-                    <input
-                      type="datetime-local"
-                      value={formStart}
-                      onChange={(e) => setFormStart(e.target.value)}
-                      style={{ padding: 8 }}
-                    />
-                  </label>
-                  <label style={{ display: "grid", gap: 6 }}>
-                    <div style={{ fontWeight: 700 }}>終了</div>
-                    <input
-                      type="datetime-local"
-                      value={formEnd}
-                      onChange={(e) => setFormEnd(e.target.value)}
-                      style={{ padding: 8 }}
-                    />
-                  </label>
-                </div>
-
-                <label style={{ display: "grid", gap: 6 }}>
-                  <div style={{ fontWeight: 700 }}>メンバー</div>
-                  <select value={formMember} onChange={(e) => setFormMember(e.target.value)} style={{ padding: 8 }}>
-                    {members.map((m) => (
-                      <option key={m.id} value={m.name}>
-                        {m.name}
-                      </option>
-                    ))}
-                    {members.length === 0 && <option value="未設定">未設定</option>}
-                  </select>
-                </label>
-
-                <div style={{ display: "flex", gap: 10, justifyContent: "flex-end", marginTop: 6 }}>
-                  {editingId !== null && (
-                    <button
-                      onClick={() => deleteEventWithUndo(editingId)}
-                      style={{ padding: "8px 12px", background: "#ffe5e5" }}
+              {todayOpenTodos.length === 0 ? (
+                <div style={{ opacity: 0.6, fontSize: 13 }}>今日のToDoはありません</div>
+              ) : (
+                <div style={{ display: "grid", gap: 8 }}>
+                  {todayOpenTodos.map((t) => (
+                    <div
+                      key={t.id}
+                      style={{
+                        border: "1px solid #eee",
+                        borderRadius: 12,
+                        padding: 10,
+                        background: "#fff",
+                        display: "grid",
+                        gap: 6,
+                      }}
                     >
-                      削除（Undoあり）
-                    </button>
-                  )}
-                  <button onClick={saveModal} style={{ padding: "8px 12px" }}>
-                    保存
-                  </button>
+                      <div style={{ fontWeight: 900 }}>{t.title}</div>
+                      <div style={{ fontSize: 12, opacity: 0.7 }}>{t.assignee ?? "未設定"}</div>
+                      <div style={{ display: "flex", gap: 8, justifyContent: "flex-end" }}>
+                        <button onClick={() => toggleTodoQuick(t.id, t.status)} style={btnStyle}>
+                          完了
+                        </button>
+                        <button
+                          onClick={() => openTodoEditModalById(t.id)}
+                          style={{ ...btnStyle, background: "#f3f4f6" }}
+                        >
+                          編集
+                        </button>
+                      </div>
+                    </div>
+                  ))}
                 </div>
+              )}
+            </div>
+
+            {/* 📌 目標 */}
+            <div style={{ ...cardStyle, marginBottom: 12 }}>
+              <div style={cardTitleStyle}>📌 今月の目標（{monthKey(currentDate).slice(0, 7)}）</div>
+              <textarea
+                value={monthlyGoal}
+                onChange={(e) => setMonthlyGoal(e.target.value)}
+                style={{
+                  width: "100%",
+                  minHeight: 90,
+                  padding: 10,
+                  resize: "vertical",
+                  borderRadius: 12,
+                  border: "1px solid #e5e7eb",
+                }}
+                placeholder="例：毎日ショート投稿 / 配信の安定化 / 体調管理…"
+              />
+              <div style={{ marginTop: 6, fontSize: 12, opacity: 0.7 }}>
+                保存状態：{saveState === "saving" ? "保存中…" : saveState === "saved" ? "保存済" : saveState === "error" ? "エラー" : "待機"}
               </div>
             </div>
-          </div>
-        )}
 
-        {/* ToDo編集モーダル */}
-        {todoModalOpen && (
-          <div
-            style={{
-              position: "fixed",
-              inset: 0,
-              background: "rgba(0,0,0,0.35)",
-              display: "flex",
-              alignItems: "center",
-              justifyContent: "center",
-              padding: 16,
-              zIndex: 9999,
-            }}
-            onClick={closeTodoModal}
-          >
-            <div
-              style={{
-                width: "min(680px, 100%)",
-                background: "#fff",
-                borderRadius: 12,
-                padding: 14,
-                boxShadow: "0 10px 30px rgba(0,0,0,0.2)",
-              }}
-              onClick={(e) => e.stopPropagation()}
-            >
-              <div style={{ display: "flex", justifyContent: "space-between", gap: 12 }}>
-                <div style={{ fontWeight: 800, fontSize: 16 }}>ToDoを編集</div>
-                <button onClick={closeTodoModal} style={{ padding: "6px 10px" }}>
-                  ✕
+            {/* ✅ 今月やるべきこと */}
+            <div style={{ ...cardStyle, marginBottom: 12 }}>
+              <div style={cardTitleStyle}>✅ 今月やるべきこと（{monthKey(currentDate).slice(0, 7)}）</div>
+
+              <div style={{ display: "flex", gap: 8 }}>
+                <input
+                  value={mustNewText}
+                  onChange={(e) => setMustNewText(e.target.value)}
+                  style={{
+                    flex: 1,
+                    padding: 10,
+                    borderRadius: 12,
+                    border: "1px solid #e5e7eb",
+                  }}
+                  placeholder="例：サムネテンプレ整備"
+                />
+                <button
+                  onClick={addMustItem}
+                  style={{
+                    padding: "10px 12px",
+                    borderRadius: 12,
+                    border: "1px solid #e5e7eb",
+                    background: "#fff",
+                    fontWeight: 900,
+                    cursor: "pointer",
+                  }}
+                >
+                  追加
                 </button>
               </div>
 
-              <div style={{ display: "grid", gap: 10, marginTop: 12 }}>
-                <label style={{ display: "grid", gap: 6 }}>
-                  <div style={{ fontWeight: 700 }}>タイトル</div>
-                  <input
-                    value={todoFormTitle}
-                    onChange={(e) => setTodoFormTitle(e.target.value)}
-                    style={{ padding: 8 }}
-                  />
-                </label>
-
-                <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 10 }}>
-                  <label style={{ display: "grid", gap: 6 }}>
-                    <div style={{ fontWeight: 700 }}>日付</div>
-                    <input
-                      value={todoFormDate}
-                      onChange={(e) => setTodoFormDate(e.target.value)}
-                      style={{ padding: 8 }}
-                    />
-                  </label>
-
-                  <label style={{ display: "grid", gap: 6 }}>
-                    <div style={{ fontWeight: 700 }}>担当</div>
-                    <select
-                      value={todoFormAssignee}
-                      onChange={(e) => setTodoFormAssignee(e.target.value)}
-                      style={{ padding: 8 }}
+              <div style={{ marginTop: 10, display: "grid", gap: 8 }}>
+                {monthlyMust.length === 0 && <div style={{ opacity: 0.6 }}>まだありません</div>}
+                {monthlyMust.map((m) => (
+                  <div
+                    key={m.id}
+                    style={{
+                      display: "flex",
+                      alignItems: "center",
+                      gap: 8,
+                      padding: 10,
+                      border: "1px solid #eee",
+                      borderRadius: 12,
+                      background: "#fff",
+                    }}
+                  >
+                    <input type="checkbox" checked={m.done} onChange={() => toggleMustItem(m.id)} />
+                    <div
+                      style={{
+                        flex: 1,
+                        textDecoration: m.done ? "line-through" : "none",
+                        opacity: m.done ? 0.6 : 1,
+                        fontWeight: 700,
+                      }}
                     >
-                      {members.map((m) => (
-                        <option key={m.id} value={m.name}>
-                          {m.name}
-                        </option>
-                      ))}
-                      {members.length === 0 && <option value="未設定">未設定</option>}
-                    </select>
-                  </label>
+                      {m.text}
+                    </div>
+                    <button
+                      onClick={() => deleteMustItem(m.id)}
+                      style={{
+                        padding: "6px 10px",
+                        borderRadius: 10,
+                        border: "1px solid #e5e7eb",
+                        background: "#fff",
+                        fontWeight: 900,
+                        cursor: "pointer",
+                      }}
+                    >
+                      ✕
+                    </button>
+                  </div>
+                ))}
+              </div>
+            </div>
+
+            {/* フィルター */}
+            <div style={{ ...cardStyle, marginBottom: 12 }}>
+              <div style={cardTitleStyle}>表示フィルター</div>
+
+              <div style={{ display: "grid", gap: 8 }}>
+                <div style={{ display: "flex", gap: 6, flexWrap: "wrap" }}>
+                  <button
+                    onClick={() => setShowType("all")}
+                    style={{ ...btnStyle, background: showType === "all" ? "#eef2ff" : "#fff" }}
+                  >
+                    全部
+                  </button>
+                  <button
+                    onClick={() => setShowType("schedule")}
+                    style={{ ...btnStyle, background: showType === "schedule" ? "#eef2ff" : "#fff" }}
+                  >
+                    予定だけ
+                  </button>
+                  <button
+                    onClick={() => setShowType("todo")}
+                    style={{ ...btnStyle, background: showType === "todo" ? "#eef2ff" : "#fff" }}
+                  >
+                    ToDoだけ
+                  </button>
                 </div>
 
-                <label style={{ display: "grid", gap: 6 }}>
-                  <div style={{ fontWeight: 700 }}>詳細（メモ）</div>
-                  <textarea
-                    value={todoFormDetail}
-                    onChange={(e) => setTodoFormDetail(e.target.value)}
-                    style={{ padding: 8, minHeight: 90, resize: "vertical" }}
-                  />
-                </label>
-
-                <label style={{ display: "flex", alignItems: "center", gap: 8 }}>
+                <label style={{ display: "flex", alignItems: "center", gap: 8, fontSize: 13 }}>
                   <input
                     type="checkbox"
-                    checked={todoFormStatus === "done"}
-                    onChange={(e) => setTodoFormStatus(e.target.checked ? "done" : "open")}
+                    checked={hideDoneTodos}
+                    onChange={(e) => setHideDoneTodos(e.target.checked)}
                   />
-                  完了にする
+                  完了ToDoを非表示
                 </label>
 
-                <div style={{ display: "flex", gap: 10, justifyContent: "flex-end", marginTop: 6 }}>
-                  {editingTodoId && (
-                    <button
-                      onClick={() => deleteTodoWithUndo(editingTodoId)}
-                      style={{ padding: "8px 12px", background: "#ffe5e5" }}
-                    >
-                      削除（Undoあり）
-                    </button>
-                  )}
-                  <button onClick={saveTodoModal} style={{ padding: "8px 12px" }}>
-                    保存
-                  </button>
-                </div>
-              </div>
-            </div>
-          </div>
-        )}
-
-        {/* 共有ノート モーダル */}
-        {notesOpen && (
-          <div
-            style={{
-              position: "fixed",
-              inset: 0,
-              background: "rgba(0,0,0,0.35)",
-              display: "flex",
-              alignItems: "center",
-              justifyContent: "center",
-              padding: 16,
-              zIndex: 99999,
-            }}
-            onClick={closeNotes}
-          >
-            <div
-              style={{
-                width: "min(1100px, 100%)",
-                height: "min(720px, 92vh)",
-                background: "#fff",
-                borderRadius: 12,
-                boxShadow: "0 10px 30px rgba(0,0,0,0.2)",
-                overflow: "hidden",
-                display: "grid",
-                gridTemplateColumns: "320px 1fr",
-              }}
-              onClick={(e) => e.stopPropagation()}
-            >
-              {/* 左：ノート一覧 */}
-              <div style={{ borderRight: "1px solid #eee", padding: 12, overflow: "auto" }}>
-                <div style={{ display: "flex", justifyContent: "space-between", gap: 10, alignItems: "center" }}>
-                  <div style={{ fontWeight: 900 }}>共有ノート</div>
-                  <button onClick={closeNotes} style={{ padding: "6px 10px" }}>
-                    ✕
-                  </button>
-                </div>
-
-                <div style={{ display: "flex", gap: 8, marginTop: 10 }}>
-                  <button onClick={startNewNote} style={{ padding: "8px 10px", fontWeight: 800 }}>
-                    ＋ 新規
-                  </button>
-                  <button onClick={loadNotes} style={{ padding: "8px 10px" }}>
-                    再読込
-                  </button>
-                </div>
-
-                <div style={{ marginTop: 12, display: "grid", gap: 8 }}>
-                  {notes.length === 0 ? (
-                    <div style={{ opacity: 0.6, fontSize: 13 }}>まだノートがありません</div>
+                <div style={{ marginTop: 4, fontWeight: 900, fontSize: 13 }}>メンバー表示</div>
+                <div style={{ display: "grid", gap: 6 }}>
+                  {members.length === 0 ? (
+                    <div style={{ opacity: 0.6, fontSize: 13 }}>membersが0件の場合はRLS/seedを確認</div>
                   ) : (
-                    notes.map((n) => (
-                      <div
-                        key={n.id}
-                        style={{
-                          border: "1px solid #eee",
-                          borderRadius: 10,
-                          padding: 10,
-                          cursor: "pointer",
-                          background: n.id === noteEditingId ? "#f3f4f6" : "#fff",
-                        }}
-                        onClick={() => startEditNote(n)}
-                      >
-                        <div style={{ fontWeight: 900, marginBottom: 4, wordBreak: "break-word" }}>
-                          {n.title}
-                        </div>
-                        <div style={{ fontSize: 12, opacity: 0.7, wordBreak: "break-word" }}>
-                          {(n.content ?? "").slice(0, 60)}
-                          {(n.content ?? "").length > 60 ? "…" : ""}
-                        </div>
-                      </div>
+                    members.map((m) => (
+                      <label key={m.id} style={{ display: "flex", alignItems: "center", gap: 8, fontSize: 13 }}>
+                        <input
+                          type="checkbox"
+                          checked={memberVisible[m.name] ?? true}
+                          onChange={(e) =>
+                            setMemberVisible((prev) => ({
+                              ...prev,
+                              [m.name]: e.target.checked,
+                            }))
+                          }
+                        />
+                        <span
+                          style={{
+                            width: 10,
+                            height: 10,
+                            borderRadius: 999,
+                            background: m.color || DEFAULT_COLOR,
+                            display: "inline-block",
+                          }}
+                        />
+                        {m.name}
+                      </label>
                     ))
                   )}
                 </div>
               </div>
+            </div>
 
-              {/* 右：編集 */}
-              <div style={{ padding: 12, display: "grid", gridTemplateRows: "auto 1fr auto", gap: 10 }}>
-                <div style={{ display: "flex", gap: 10, alignItems: "center" }}>
-                  <div style={{ fontWeight: 800 }}>タイトル</div>
-                  <input
-                    value={noteTitle}
-                    onChange={(e) => setNoteTitle(e.target.value)}
-                    style={{ flex: 1, padding: 8 }}
-                    placeholder="例：配信手順 / ログイン情報 / 連絡先…"
-                  />
-                </div>
+          </aside>
 
-                <textarea
-                  value={noteContent}
-                  onChange={(e) => setNoteContent(e.target.value)}
-                  style={{ width: "100%", height: "100%", padding: 10, resize: "none" }}
-                  placeholder="ここに長文メモOK"
-                />
+          {/* 右：カレンダー */}
+          <main
+            style={{
+              width: CALENDAR_MIN_W,
+              minWidth: CALENDAR_MIN_W,
+              padding: 12,
+              position: "relative",
+              background: "#fff",
+            }}
+          >
+            <div style={{ marginBottom: 10, display: "flex", gap: 10, alignItems: "center", flexWrap: "wrap" }}>
+              <div style={{ fontWeight: 700 }}>メンバー：</div>
+              <select
+                value={selectedMember}
+                onChange={(e) => setSelectedMember(e.target.value)}
+                style={{ padding: 6, minWidth: 180 }}
+              >
+                {members.length === 0 ? (
+                  <option value="">（membersが0件 / RLS確認）</option>
+                ) : (
+                  members.map((m) => (
+                    <option key={m.id} value={m.name}>
+                      {m.name}
+                    </option>
+                  ))
+                )}
+              </select>
 
-                <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", gap: 10 }}>
-                  <div style={{ fontSize: 12, opacity: 0.7 }}>
-                    {noteEditingId ? `編集ID: ${noteEditingId.slice(0, 8)}…` : "新規作成"}
-                  </div>
-                  <div style={{ display: "flex", gap: 8 }}>
-                    {noteEditingId && (
-                      <button
-                        onClick={() => deleteNote(noteEditingId)}
-                        style={{ padding: "10px 12px", background: "#ffe5e5" }}
+              {/* ToDo担当（空白追加時の担当） */}
+              <div style={{ marginLeft: 10, fontWeight: 700 }}>ToDo担当：</div>
+              <select
+                value={todoAssignee}
+                onChange={(e) => setTodoAssignee(e.target.value)}
+                style={{ padding: 6, minWidth: 180 }}
+              >
+                {members.length === 0 ? (
+                  <option value="未設定">未設定</option>
+                ) : (
+                  members.map((m) => (
+                    <option key={m.id} value={m.name}>
+                      {m.name}
+                    </option>
+                  ))
+                )}
+              </select>
+
+              {/* スマホ補助ボタン（不要なら消してOK） */}
+              <div style={{ marginLeft: "auto", display: "flex", gap: 8 }}>
+                <button onClick={scrollToSidebar} style={btnStyle} title="左へ（メニュー）">
+                  ←
+                </button>
+                <button onClick={scrollToCalendar} style={btnStyle} title="右へ（カレンダー）">
+                  →
+                </button>
+              </div>
+            </div>
+
+            <div style={{ height: "calc(100dvh - 140px)", minHeight: 520 }}>
+              <CalendarComp
+                localizer={localizer}
+                events={allEvents}
+                components={{
+                  month: { dateHeader: DateHeader },
+                  event: ({ event }: any) => {
+                    const start = new Date(event.start);
+                    const hhmm = start.toLocaleTimeString("ja-JP", {
+                      hour: "2-digit",
+                      minute: "2-digit",
+                    });
+
+                    const isTodo = event.kind === "todo";
+
+                    return (
+                      <div
+                        style={{
+                          display: "flex",
+                          alignItems: "center",
+                          gap: 6,
+                          fontWeight: 800,
+                          fontSize: 12,
+                          overflow: "hidden",
+                          whiteSpace: "nowrap",
+                          textOverflow: "ellipsis",
+                        }}
                       >
-                        削除
-                      </button>
-                    )}
-                    <button onClick={saveNote} disabled={notesSaving} style={{ padding: "10px 12px", fontWeight: 900 }}>
-                      {notesSaving ? "保存中…" : "保存"}
-                    </button>
-                  </div>
-                </div>
+                        <span>{isTodo ? "🧾" : "●"}</span>
+                        {!isTodo && <span>{hhmm}</span>}
+                        <span>{event.title}</span>
+                      </div>
+                    );
+                  },
+                }}
+                startAccessor={(e: any) => e.start}
+                endAccessor={(e: any) => e.end}
+                culture="ja"
+                selectable
+                resizableresizable={!isMobile}
+                views={["month", "week", "day", "agenda"]}
+                view={view}
+                onView={(v) => setView(v)}
+                date={currentDate}
+                onNavigate={(d) => setCurrentDate(d)}
+                onSelectSlot={onSelectSlot}
+                onSelectEvent={onSelectEvent}
+                onEventDrop={isMobile ? undefined : onEventDrop}
+                onEventResize={isMobile ? undefined : onEventResize}
+                dayPropGetter={(date) => {
+                  const isToday = toYmdLocal(date) === todayYmd();
+                  if (!isToday) return {};
+                  return { style: { background: TODAY_CELL_BG } };
+                }}
+                eventPropGetter={(event: any) => {
+                  const ev = event as CalendarEvent;
+
+                  if (ev.kind === "todo") {
+                    const isToday = ev.due_date === todayYmd();
+                    const isOverdue = ev.status !== "done" && ev.due_date < todayYmd();
+                    const bg = ev.status === "done" ? TODO_DONE_COLOR : getMemberColor(ev.assignee || "未設定");
+
+                    return {
+                      style: {
+                        backgroundColor: bg,
+                        opacity: ev.status === "done" ? 0.55 : 0.95,
+                        border: isOverdue ? OVERDUE_BORDER : isToday ? "3px solid #111" : "1px solid transparent",
+                        boxShadow: isToday ? "0 0 0 2px rgba(0,0,0,0.12)" : "none",
+                        fontWeight: isToday ? 900 : 700,
+                      },
+                    };
+                  }
+
+                  const bg = getMemberColor(ev.member);
+                  return { style: { backgroundColor: bg } };
+                }}
+              />
+            </div>
+
+            {/* 共有ノートボタン */}
+            <button
+              onClick={openNotes}
+              title="共有ノート"
+              style={{
+                position: "fixed",
+                right: 14,
+                bottom: 14,
+                zIndex: 999999,
+                width: 44,
+                height: 44,
+                borderRadius: 999,
+                border: "1px solid #e5e7eb",
+                background: "#fff",
+                boxShadow: "0 10px 25px rgba(0,0,0,0.12)",
+                fontSize: 18,
+                cursor: "pointer",
+              }}
+            >
+              📝
+            </button>
+          </main>
+        </div>
+      </div>
+
+      {/* ===== 予定モーダル（完成版）===== */}
+      {modalOpen && (
+        <div
+          style={{
+            position: "fixed",
+            inset: 0,
+            background: "rgba(0,0,0,0.35)",
+            display: "flex",
+            alignItems: "stretch",
+            justifyContent: "flex-end",
+            padding: 16,
+            zIndex: 9999,
+          }}
+          onClick={closeModal}
+        >
+          <div
+            onClick={(e) => e.stopPropagation()}
+            style={{
+              width: 420,
+              height: "100%",
+              background: "rgba(255,255,255,0.96)",
+              backdropFilter: "blur(8px)",
+              borderRadius: 16,
+              border: "1px solid rgba(229,231,235,0.9)",
+              boxShadow: "-18px 0 45px rgba(0,0,0,0.18)",
+              overflow: "auto",
+              padding: 14,
+              display: "flex",
+              flexDirection: "column",
+              gap: 12,
+            }}
+          >
+            <div
+              style={{
+                display: "flex",
+                justifyContent: "space-between",
+                alignItems: "center",
+                gap: 12,
+                paddingBottom: 10,
+                borderBottom: "1px solid rgba(229,231,235,0.9)",
+              }}
+            >
+              <div style={{ fontWeight: 900, fontSize: 15 }}>
+                {editingId === null ? "予定を追加" : "予定を編集"}
+              </div>
+              <button onClick={closeModal} style={btnStyle}>
+                ✕
+              </button>
+            </div>
+
+            <div>
+              <div style={{ fontWeight: 800, fontSize: 12, opacity: 0.8, marginBottom: 6 }}>タイトル</div>
+              <input value={formTitle} onChange={(e) => setFormTitle(e.target.value)} style={fieldStyle} />
+            </div>
+
+            <div>
+              <div style={{ fontWeight: 800, fontSize: 12, opacity: 0.8, marginBottom: 6 }}>メンバー</div>
+              <select value={formMember} onChange={(e) => setFormMember(e.target.value)} style={fieldStyle}>
+                {members.length === 0 ? (
+                  <option value="未設定">未設定</option>
+                ) : (
+                  members.map((m) => (
+                    <option key={m.id} value={m.name}>
+                      {m.name}
+                    </option>
+                  ))
+                )}
+              </select>
+            </div>
+
+            <div style={{ display: "grid", gap: 10 }}>
+              <div>
+                <div style={{ fontWeight: 800, fontSize: 12, opacity: 0.8, marginBottom: 6 }}>開始</div>
+                <input
+                  type="datetime-local"
+                  value={formStart}
+                  onChange={(e) => setFormStart(e.target.value)}
+                  style={fieldStyle}
+                />
+              </div>
+              <div>
+                <div style={{ fontWeight: 800, fontSize: 12, opacity: 0.8, marginBottom: 6 }}>終了</div>
+                <input
+                  type="datetime-local"
+                  value={formEnd}
+                  onChange={(e) => setFormEnd(e.target.value)}
+                  style={fieldStyle}
+                />
+              </div>
+            </div>
+
+            <div>
+              <div style={{ fontWeight: 800, fontSize: 12, opacity: 0.8, marginBottom: 6 }}>メモ</div>
+              <textarea
+                value={formDesc}
+                onChange={(e) => setFormDesc(e.target.value)}
+                style={{ ...fieldStyle, minHeight: 120 }}
+              />
+            </div>
+
+            <div style={{ display: "flex", gap: 8, marginTop: "auto" }}>
+              <button onClick={saveModal} style={{ ...btnStyle, background: "#eef2ff" }}>
+                保存
+              </button>
+              {editingId !== null && (
+                <button
+                  onClick={() => deleteEventWithUndo(editingId)}
+                  style={{ ...btnStyle, borderColor: "#fecaca", background: "#fff" }}
+                >
+                  削除（Undo）
+                </button>
+              )}
+              <button onClick={closeModal} style={btnStyle}>
+                閉じる
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* ===== ToDoモーダル（完成版）===== */}
+      {todoModalOpen && (
+        <div
+          style={{
+            position: "fixed",
+            inset: 0,
+            background: "rgba(0,0,0,0.35)",
+            display: "flex",
+            alignItems: "center",
+            justifyContent: "center",
+            padding: 16,
+            zIndex: 10000,
+          }}
+          onClick={closeTodoModal}
+        >
+          <div
+            onClick={(e) => e.stopPropagation()}
+            style={{
+              width: 520,
+              maxWidth: "100%",
+              background: "#fff",
+              borderRadius: 16,
+              border: "1px solid #e5e7eb",
+              boxShadow: "0 20px 60px rgba(0,0,0,0.2)",
+              padding: 14,
+              display: "grid",
+              gap: 12,
+            }}
+          >
+            <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
+              <div style={{ fontWeight: 900 }}>ToDoを編集</div>
+              <button onClick={closeTodoModal} style={btnStyle}>
+                ✕
+              </button>
+            </div>
+
+            <div>
+              <div style={{ fontWeight: 800, fontSize: 12, opacity: 0.8, marginBottom: 6 }}>タイトル</div>
+              <input value={todoFormTitle} onChange={(e) => setTodoFormTitle(e.target.value)} style={fieldStyle} />
+            </div>
+
+            <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 10 }}>
+              <div>
+                <div style={{ fontWeight: 800, fontSize: 12, opacity: 0.8, marginBottom: 6 }}>期限</div>
+                <input
+                  type="date"
+                  value={todoFormDate}
+                  onChange={(e) => setTodoFormDate(e.target.value)}
+                  style={fieldStyle}
+                />
+              </div>
+              <div>
+                <div style={{ fontWeight: 800, fontSize: 12, opacity: 0.8, marginBottom: 6 }}>ステータス</div>
+                <select
+                  value={todoFormStatus}
+                  onChange={(e) => setTodoFormStatus(e.target.value as any)}
+                  style={fieldStyle}
+                >
+                  <option value="open">open</option>
+                  <option value="done">done</option>
+                </select>
+              </div>
+            </div>
+
+            <div>
+              <div style={{ fontWeight: 800, fontSize: 12, opacity: 0.8, marginBottom: 6 }}>担当</div>
+              <select value={todoFormAssignee} onChange={(e) => setTodoFormAssignee(e.target.value)} style={fieldStyle}>
+                {members.length === 0 ? (
+                  <option value="未設定">未設定</option>
+                ) : (
+                  members.map((m) => (
+                    <option key={m.id} value={m.name}>
+                      {m.name}
+                    </option>
+                  ))
+                )}
+              </select>
+            </div>
+
+            <div>
+              <div style={{ fontWeight: 800, fontSize: 12, opacity: 0.8, marginBottom: 6 }}>詳細</div>
+              <textarea
+                value={todoFormDetail}
+                onChange={(e) => setTodoFormDetail(e.target.value)}
+                style={{ ...fieldStyle, minHeight: 120 }}
+              />
+            </div>
+
+            <div style={{ display: "flex", gap: 8, justifyContent: "flex-end" }}>
+              <button onClick={saveTodoModal} style={{ ...btnStyle, background: "#eef2ff" }}>
+                保存
+              </button>
+              {editingTodoId && (
+                <button onClick={() => deleteTodoWithUndo(editingTodoId)} style={{ ...btnStyle, borderColor: "#fecaca" }}>
+                  削除（Undo）
+                </button>
+              )}
+              <button onClick={closeTodoModal} style={btnStyle}>
+                閉じる
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* ===== 共有ノートモーダル（完成版）===== */}
+      {notesOpen && (
+        <div
+          style={{
+            position: "fixed",
+            inset: 0,
+            background: "rgba(0,0,0,0.35)",
+            display: "flex",
+            alignItems: "center",
+            justifyContent: "center",
+            padding: 16,
+            zIndex: 10001,
+          }}
+          onClick={closeNotes}
+        >
+          <div
+            onClick={(e) => e.stopPropagation()}
+            style={{
+              width: 980,
+              maxWidth: "100%",
+              height: "85dvh",
+              background: "#fff",
+              borderRadius: 16,
+              border: "1px solid #e5e7eb",
+              boxShadow: "0 20px 60px rgba(0,0,0,0.2)",
+              padding: 14,
+              display: "grid",
+              gridTemplateColumns: "320px 1fr",
+              gap: 12,
+              overflow: "hidden",
+            }}
+          >
+            <div style={{ display: "grid", gap: 10, overflow: "auto", paddingRight: 4 }}>
+              <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
+                <div style={{ fontWeight: 900 }}>共有ノート</div>
+                <button onClick={closeNotes} style={btnStyle}>
+                  ✕
+                </button>
+              </div>
+
+              <button onClick={startNewNote} style={{ ...btnStyle, background: "#f3f4f6" }}>
+                ＋ 新規
+              </button>
+
+              <div style={{ display: "grid", gap: 8 }}>
+                {notes.length === 0 ? (
+                  <div style={{ opacity: 0.6, fontSize: 13 }}>ノートがありません</div>
+                ) : (
+                  notes.map((n) => (
+                    <div
+                      key={n.id}
+                      style={{
+                        border: "1px solid #eee",
+                        borderRadius: 12,
+                        padding: 10,
+                        cursor: "pointer",
+                        background: n.id === noteEditingId ? "#eef2ff" : "#fff",
+                      }}
+                      onClick={() => startEditNote(n)}
+                    >
+                      <div style={{ fontWeight: 900, fontSize: 13, marginBottom: 4 }}>
+                        {n.title || "(no title)"}
+                      </div>
+                      <div style={{ fontSize: 12, opacity: 0.7, whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>
+                        {n.content || ""}
+                      </div>
+                    </div>
+                  ))
+                )}
+              </div>
+            </div>
+
+            <div style={{ display: "grid", gridTemplateRows: "auto 1fr auto", gap: 10, overflow: "hidden" }}>
+              <div style={{ display: "flex", gap: 8, alignItems: "center" }}>
+                <input
+                  value={noteTitle}
+                  onChange={(e) => setNoteTitle(e.target.value)}
+                  placeholder="タイトル"
+                  style={fieldStyle}
+                />
+                <button onClick={saveNote} style={{ ...btnStyle, background: "#eef2ff" }} disabled={notesSaving}>
+                  {notesSaving ? "保存中…" : "保存"}
+                </button>
+                {noteEditingId && (
+                  <button onClick={() => deleteNote(noteEditingId)} style={{ ...btnStyle, borderColor: "#fecaca" }}>
+                    削除
+                  </button>
+                )}
+              </div>
+
+              <textarea
+                value={noteContent}
+                onChange={(e) => setNoteContent(e.target.value)}
+                placeholder="内容"
+                style={{ ...fieldStyle, height: "100%", resize: "none" }}
+              />
+
+              <div style={{ fontSize: 12, opacity: 0.7 }}>
+                ※ 共有ノートは誰でも編集できる想定。招待制 + RLS を入れるなら後でここも強化できます。
               </div>
             </div>
           </div>
-        )}
+        </div>
+      )}
 
-        {/* Undoバー */}
-        {undo && (
-          <div
-            style={{
-              position: "fixed",
-              left: 12,
-              bottom: 12,
-              zIndex: 99999,
-              background: "#111827",
-              color: "#fff",
-              padding: "10px 12px",
-              borderRadius: 12,
-              display: "flex",
-              gap: 10,
-              alignItems: "center",
-              boxShadow: "0 10px 30px rgba(0,0,0,0.25)",
-            }}
-          >
-            <div style={{ fontSize: 13, opacity: 0.95 }}>削除しました（5秒以内なら戻せます）</div>
-            <button
-              onClick={undoDelete}
-              style={{
-                padding: "6px 10px",
-                borderRadius: 10,
-                background: "#fff",
-                color: "#111827",
-                fontWeight: 800,
-              }}
-            >
-              Undo
-            </button>
+      {/* ===== Undoバー（完成版）===== */}
+      {undo && (
+        <div
+          style={{
+            position: "fixed",
+            left: 12,
+            right: 12,
+            bottom: 12,
+            zIndex: 20000,
+            background: "#111827",
+            color: "#fff",
+            borderRadius: 14,
+            padding: "10px 12px",
+            display: "flex",
+            alignItems: "center",
+            justifyContent: "space-between",
+            gap: 10,
+            boxShadow: "0 20px 60px rgba(0,0,0,0.25)",
+          }}
+        >
+          <div style={{ fontWeight: 800, fontSize: 13 }}>
+            削除しました（5秒以内に取り消せます）
           </div>
-        )}
-      </main>
+          <button onClick={undoDelete} style={{ ...btnStyle, background: "#fff" }}>
+            Undo
+          </button>
+        </div>
+      )}
     </div>
   );
 }
