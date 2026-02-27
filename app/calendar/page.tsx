@@ -172,9 +172,6 @@ export default function CalendarPage() {
    * ✅ 2階建てスクロール構造
    * - 縦スクロール：outer（scrollerRef）が担当（overflowY:auto）
    * - 横スクロール：mobile の時だけ outer が担当（overflowX:auto）
-   *
-   * こうしないと、横スクロール用に overflowY:hidden をやると
-   * 「月表示の最終週が切れる」問題が必ず出ます。
    */
   const scrollerRef = useRef<HTMLDivElement>(null);
 
@@ -189,7 +186,8 @@ export default function CalendarPage() {
 
   const scrollToCalendar = () =>
     scrollerRef.current?.scrollTo({ left: SIDEBAR_W, behavior: "smooth" });
-  const scrollToSidebar = () => scrollerRef.current?.scrollTo({ left: 0, behavior: "smooth" });
+  const scrollToSidebar = () =>
+    scrollerRef.current?.scrollTo({ left: 0, behavior: "smooth" });
 
   // ===== Auth =====
   const [authChecked, setAuthChecked] = useState(false);
@@ -278,6 +276,27 @@ export default function CalendarPage() {
   const [noteContent, setNoteContent] = useState("");
   const [notesSaving, setNotesSaving] = useState(false);
 
+  // ✅ どれかモーダルが開いているか（背景スクロール/操作を止める）
+  const isAnyModalOpen = modalOpen || todoModalOpen || notesOpen;
+
+  // ✅ 背景（body）スクロールロック（iOS対策も兼ねて強めに止める）
+  useEffect(() => {
+    if (!mounted) return;
+
+    const prevOverflow = document.body.style.overflow;
+    const prevTouchAction = (document.body.style as any).touchAction;
+
+    if (isAnyModalOpen) {
+      document.body.style.overflow = "hidden";
+      (document.body.style as any).touchAction = "none";
+    }
+
+    return () => {
+      document.body.style.overflow = prevOverflow;
+      (document.body.style as any).touchAction = prevTouchAction;
+    };
+  }, [isAnyModalOpen, mounted]);
+
   const memberMap = useMemo(() => {
     const map = new Map<string, Member>();
     for (const m of members) map.set(m.name, m);
@@ -364,7 +383,7 @@ export default function CalendarPage() {
   useEffect(() => {
     const el = scrollerRef.current;
     if (!el) return;
-    if (!isMobile) return; // ✅ PCでは横スワイプ制御自体を無効化（デッドスペース防止）
+    if (!isMobile) return; // ✅ PCでは横スワイプ制御自体を無効化
 
     const state = swipeRef.current;
 
@@ -408,7 +427,7 @@ export default function CalendarPage() {
     };
 
     el.addEventListener("touchstart", onStart, { passive: true });
-    el.addEventListener("touchmove", onMove, { passive: false }); // ★横ロック時に preventDefault するため
+    el.addEventListener("touchmove", onMove, { passive: false }); // ★横ロック時に preventDefault
     el.addEventListener("touchend", onEnd, { passive: true });
     el.addEventListener("touchcancel", onEnd, { passive: true });
 
@@ -704,7 +723,9 @@ export default function CalendarPage() {
 
     const p = undo.payload;
     if (p.kind === "schedule") {
-      setScheduleEvents((prev) => [...prev, p.row].sort((a, b) => a.start.getTime() - b.start.getTime()));
+      setScheduleEvents((prev) =>
+        [...prev, p.row].sort((a, b) => a.start.getTime() - b.start.getTime())
+      );
     } else {
       setTodos((prev) => [p.row, ...prev]);
     }
@@ -1057,6 +1078,11 @@ export default function CalendarPage() {
   const boardWidth = isMobile ? SIDEBAR_W + CALENDAR_MIN_W : "100%";
   const mainMinWidth = isMobile ? CALENDAR_MIN_W : 0;
 
+  // ===== 共有ノート：モバイル時の「モーダル内で横+縦スクロール」用 =====
+  const NOTES_LIST_W = 320;
+  const NOTES_EDITOR_MIN_W = 660; // 1frの最低幅（ここを増やすほど横スクロールが必要になる）
+  const notesInnerWidth = isMobile ? NOTES_LIST_W + NOTES_EDITOR_MIN_W : undefined;
+
   return (
     <div
       style={{
@@ -1066,18 +1092,19 @@ export default function CalendarPage() {
         overflow: "hidden", // ✅ 最外は固定（中でスクロールを管理）
       }}
     >
-      {/* ✅ 1階：縦スクロール担当（ここが重要） */}
+      {/* ✅ 1階：縦スクロール担当 */}
       <div
         ref={scrollerRef}
         style={{
           height: "100%",
           width: "100%",
-          overflowY: "auto", // ✅ 縦スクロールを殺さない
-          overflowX: isMobile ? "auto" : "hidden", // ✅ PCは横スクロールを無効化 → デッドスペース消える
+          overflowY: isAnyModalOpen ? "hidden" : "auto", // ✅ モーダル中は背景スクロール停止
+          overflowX: isAnyModalOpen ? "hidden" : isMobile ? "auto" : "hidden",
           WebkitOverflowScrolling: "touch",
           overscrollBehaviorX: "contain",
           background: "#fff",
-          touchAction: isMobile ? "pan-y" : "auto", // ✅ 縦は常に許可
+          touchAction: isAnyModalOpen ? "none" : isMobile ? "pan-y" : "auto",
+          pointerEvents: isAnyModalOpen ? "none" : "auto", // ✅ 背景の誤操作を強制ブロック
         }}
       >
         {/* ✅ 2階：横に長いボード（mobileだけ固定幅） */}
@@ -1098,7 +1125,6 @@ export default function CalendarPage() {
               borderRight: "1px solid #eee",
               padding: 12,
               background: "#fafafa",
-              // ✅ サイドバー内の縦スクロールもOK（outerと競合しにくい）
               overflow: "auto",
             }}
           >
@@ -1289,7 +1315,10 @@ export default function CalendarPage() {
                     <div style={{ opacity: 0.6, fontSize: 13 }}>membersが0件の場合はRLS/seedを確認</div>
                   ) : (
                     members.map((m) => (
-                      <label key={m.id} style={{ display: "flex", alignItems: "center", gap: 8, fontSize: 13 }}>
+                      <label
+                        key={m.id}
+                        style={{ display: "flex", alignItems: "center", gap: 8, fontSize: 13 }}
+                      >
                         <input
                           type="checkbox"
                           checked={memberVisible[m.name] ?? true}
@@ -1326,7 +1355,6 @@ export default function CalendarPage() {
               padding: 12,
               position: "relative",
               background: "#fff",
-              // ✅ main 自体も縦スクロールできる（モバイルで最後の週が切れても救える）
               overflow: "auto",
             }}
           >
@@ -1379,10 +1407,6 @@ export default function CalendarPage() {
               )}
             </div>
 
-            {/* ✅ ここが「最後の週が見れない」を潰すポイント
-                - PC: ビューポートに合わせて固定高さでOK
-                - mobile: height を max() で“最低高さ”を確保し、足りない分は main が縦スクロール
-            */}
             <div
               style={{
                 height: isMobile ? "max(640px, calc(100dvh - 140px))" : "calc(100dvh - 140px)",
@@ -1504,6 +1528,7 @@ export default function CalendarPage() {
             justifyContent: "flex-end",
             padding: 16,
             zIndex: 9999,
+            overscrollBehavior: "contain",
           }}
           onClick={closeModal}
         >
@@ -1518,6 +1543,7 @@ export default function CalendarPage() {
               border: "1px solid rgba(229,231,235,0.9)",
               boxShadow: "-18px 0 45px rgba(0,0,0,0.18)",
               overflow: "auto",
+              WebkitOverflowScrolling: "touch",
               padding: 14,
               display: "flex",
               flexDirection: "column",
@@ -1585,11 +1611,7 @@ export default function CalendarPage() {
 
             <div>
               <div style={{ fontWeight: 800, fontSize: 12, opacity: 0.8, marginBottom: 6 }}>メモ</div>
-              <textarea
-                value={formDesc}
-                onChange={(e) => setFormDesc(e.target.value)}
-                style={{ ...fieldStyle, minHeight: 120 }}
-              />
+              <textarea value={formDesc} onChange={(e) => setFormDesc(e.target.value)} style={{ ...fieldStyle, minHeight: 120 }} />
             </div>
 
             <div style={{ display: "flex", gap: 8, marginTop: "auto" }}>
@@ -1624,6 +1646,7 @@ export default function CalendarPage() {
             justifyContent: "center",
             padding: 16,
             zIndex: 10000,
+            overscrollBehavior: "contain",
           }}
           onClick={closeTodoModal}
         >
@@ -1656,20 +1679,11 @@ export default function CalendarPage() {
             <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 10 }}>
               <div>
                 <div style={{ fontWeight: 800, fontSize: 12, opacity: 0.8, marginBottom: 6 }}>期限</div>
-                <input
-                  type="date"
-                  value={todoFormDate}
-                  onChange={(e) => setTodoFormDate(e.target.value)}
-                  style={fieldStyle}
-                />
+                <input type="date" value={todoFormDate} onChange={(e) => setTodoFormDate(e.target.value)} style={fieldStyle} />
               </div>
               <div>
                 <div style={{ fontWeight: 800, fontSize: 12, opacity: 0.8, marginBottom: 6 }}>ステータス</div>
-                <select
-                  value={todoFormStatus}
-                  onChange={(e) => setTodoFormStatus(e.target.value as any)}
-                  style={fieldStyle}
-                >
+                <select value={todoFormStatus} onChange={(e) => setTodoFormStatus(e.target.value as any)} style={fieldStyle}>
                   <option value="open">open</option>
                   <option value="done">done</option>
                 </select>
@@ -1693,11 +1707,7 @@ export default function CalendarPage() {
 
             <div>
               <div style={{ fontWeight: 800, fontSize: 12, opacity: 0.8, marginBottom: 6 }}>詳細</div>
-              <textarea
-                value={todoFormDetail}
-                onChange={(e) => setTodoFormDetail(e.target.value)}
-                style={{ ...fieldStyle, minHeight: 120 }}
-              />
+              <textarea value={todoFormDetail} onChange={(e) => setTodoFormDetail(e.target.value)} style={{ ...fieldStyle, minHeight: 120 }} />
             </div>
 
             <div style={{ display: "flex", gap: 8, justifyContent: "flex-end" }}>
@@ -1717,7 +1727,7 @@ export default function CalendarPage() {
         </div>
       )}
 
-      {/* ===== 共有ノートモーダル（完成版）===== */}
+      {/* ===== 共有ノートモーダル（スマホ：モーダル内で独立した横＋縦スクロール）===== */}
       {notesOpen && (
         <div
           style={{
@@ -1729,9 +1739,18 @@ export default function CalendarPage() {
             justifyContent: "center",
             padding: 16,
             zIndex: 10001,
+            overscrollBehavior: "contain",
+            touchAction: "none", // ✅ 背景へスクロールが伝播するのを強めに阻止
           }}
           onClick={closeNotes}
+          onTouchMove={(e) => {
+            // ✅ iOSで「背景が動く/スクロールが抜ける」ケースの保険
+            // （内側スクロールは下の scrollFrame で許可する）
+            // ここでは overlay 上の move を止める
+            if (e.target === e.currentTarget) e.preventDefault();
+          }}
         >
+          {/* 外枠 */}
           <div
             onClick={(e) => e.stopPropagation()}
             style={{
@@ -1743,89 +1762,133 @@ export default function CalendarPage() {
               border: "1px solid #e5e7eb",
               boxShadow: "0 20px 60px rgba(0,0,0,0.2)",
               padding: 14,
-              display: "grid",
-              gridTemplateColumns: "320px 1fr",
-              gap: 12,
-              overflow: "hidden",
+              overflow: "hidden", // ✅ 外枠は固定（中でスクロール）
+              display: "flex",
+              flexDirection: "column",
+              gap: 10,
             }}
           >
-            <div style={{ display: "grid", gap: 10, overflow: "auto", paddingRight: 4 }}>
-              <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
-                <div style={{ fontWeight: 900 }}>共有ノート</div>
-                <button onClick={closeNotes} style={btnStyle}>
-                  ✕
-                </button>
-              </div>
+            {/* ✅ scrollFrame：ここが「モーダル内の独立スクロール領域」 */}
+            <div
+              style={{
+                flex: "1 1 auto",
+                height: "100%",
+                width: "100%",
+                overflow: isMobile ? "auto" : "hidden", // ✅ mobile は 2軸スクロール
+                WebkitOverflowScrolling: "touch",
+                overscrollBehavior: "contain",
+                touchAction: isMobile ? "pan-x pan-y" : "auto",
+              }}
+              onTouchMove={(e) => {
+                // ✅ scrollFrame はスクロールを許可（overlay の preventDefault を突破）
+                e.stopPropagation();
+              }}
+            >
+              {/* ✅ innerGrid：mobile時は幅を持たせて「横スクロール」を発生させる */}
+              <div
+                style={{
+                  display: "grid",
+                  gridTemplateColumns: "320px 1fr",
+                  gap: 12,
+                  height: "100%",
+                  width: notesInnerWidth ? notesInnerWidth : "100%",
+                  minWidth: "100%",
+                }}
+              >
+                {/* 左：リスト（縦はこのカラム内もスクロール可） */}
+                <div style={{ display: "grid", gap: 10, overflow: "auto", paddingRight: 4 }}>
+                  <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
+                    <div style={{ fontWeight: 900 }}>共有ノート</div>
+                    <button onClick={closeNotes} style={btnStyle}>
+                      ✕
+                    </button>
+                  </div>
 
-              <button onClick={startNewNote} style={{ ...btnStyle, background: "#f3f4f6" }}>
-                ＋ 新規
-              </button>
-
-              <div style={{ display: "grid", gap: 8 }}>
-                {notes.length === 0 ? (
-                  <div style={{ opacity: 0.6, fontSize: 13 }}>ノートがありません</div>
-                ) : (
-                  notes.map((n) => (
-                    <div
-                      key={n.id}
-                      style={{
-                        border: "1px solid #eee",
-                        borderRadius: 12,
-                        padding: 10,
-                        cursor: "pointer",
-                        background: n.id === noteEditingId ? "#eef2ff" : "#fff",
-                      }}
-                      onClick={() => startEditNote(n)}
-                    >
-                      <div style={{ fontWeight: 900, fontSize: 13, marginBottom: 4 }}>
-                        {n.title || "(no title)"}
-                      </div>
-                      <div
-                        style={{
-                          fontSize: 12,
-                          opacity: 0.7,
-                          whiteSpace: "nowrap",
-                          overflow: "hidden",
-                          textOverflow: "ellipsis",
-                        }}
-                      >
-                        {n.content || ""}
-                      </div>
-                    </div>
-                  ))
-                )}
-              </div>
-            </div>
-
-            <div style={{ display: "grid", gridTemplateRows: "auto 1fr auto", gap: 10, overflow: "hidden" }}>
-              <div style={{ display: "flex", gap: 8, alignItems: "center" }}>
-                <input
-                  value={noteTitle}
-                  onChange={(e) => setNoteTitle(e.target.value)}
-                  placeholder="タイトル"
-                  style={fieldStyle}
-                />
-                <button onClick={saveNote} style={{ ...btnStyle, background: "#eef2ff" }} disabled={notesSaving}>
-                  {notesSaving ? "保存中…" : "保存"}
-                </button>
-                {noteEditingId && (
-                  <button onClick={() => deleteNote(noteEditingId)} style={{ ...btnStyle, borderColor: "#fecaca" }}>
-                    削除
+                  <button onClick={startNewNote} style={{ ...btnStyle, background: "#f3f4f6" }}>
+                    ＋ 新規
                   </button>
-                )}
-              </div>
 
-              <textarea
-                value={noteContent}
-                onChange={(e) => setNoteContent(e.target.value)}
-                placeholder="内容"
-                style={{ ...fieldStyle, height: "100%", resize: "none" }}
-              />
+                  <div style={{ display: "grid", gap: 8 }}>
+                    {notes.length === 0 ? (
+                      <div style={{ opacity: 0.6, fontSize: 13 }}>ノートがありません</div>
+                    ) : (
+                      notes.map((n) => (
+                        <div
+                          key={n.id}
+                          style={{
+                            border: "1px solid #eee",
+                            borderRadius: 12,
+                            padding: 10,
+                            cursor: "pointer",
+                            background: n.id === noteEditingId ? "#eef2ff" : "#fff",
+                          }}
+                          onClick={() => startEditNote(n)}
+                        >
+                          <div style={{ fontWeight: 900, fontSize: 13, marginBottom: 4 }}>
+                            {n.title || "(no title)"}
+                          </div>
+                          <div
+                            style={{
+                              fontSize: 12,
+                              opacity: 0.7,
+                              whiteSpace: "nowrap",
+                              overflow: "hidden",
+                              textOverflow: "ellipsis",
+                            }}
+                          >
+                            {n.content || ""}
+                          </div>
+                        </div>
+                      ))
+                    )}
+                  </div>
+                </div>
 
-              <div style={{ fontSize: 12, opacity: 0.7 }}>
-                ※ 共有ノートは誰でも編集できる想定。招待制 + RLS を入れるなら後でここも強化できます。
+                {/* 右：エディタ */}
+                <div style={{ display: "grid", gridTemplateRows: "auto 1fr auto", gap: 10, overflow: "hidden" }}>
+                  <div style={{ display: "flex", gap: 8, alignItems: "center" }}>
+                    <input
+                      value={noteTitle}
+                      onChange={(e) => setNoteTitle(e.target.value)}
+                      placeholder="タイトル"
+                      style={fieldStyle}
+                    />
+                    <button onClick={saveNote} style={{ ...btnStyle, background: "#eef2ff" }} disabled={notesSaving}>
+                      {notesSaving ? "保存中…" : "保存"}
+                    </button>
+                    {noteEditingId && (
+                      <button onClick={() => deleteNote(noteEditingId)} style={{ ...btnStyle, borderColor: "#fecaca" }}>
+                        削除
+                      </button>
+                    )}
+                  </div>
+
+                  <textarea
+                    value={noteContent}
+                    onChange={(e) => setNoteContent(e.target.value)}
+                    placeholder="内容"
+                    style={{
+                      ...fieldStyle,
+                      height: "100%",
+                      resize: "none",
+                      overflow: "auto", // ✅ textarea自体も縦スクロールできる
+                      WebkitOverflowScrolling: "touch",
+                    }}
+                  />
+
+                  <div style={{ fontSize: 12, opacity: 0.7 }}>
+                    ※ 共有ノートは誰でも編集できる想定。招待制 + RLS を入れるなら後でここも強化できます。
+                  </div>
+                </div>
               </div>
             </div>
+
+            {/* モバイル補助（任意）：横スクロールが必要だと気づけるように */}
+            {isMobile && (
+              <div style={{ fontSize: 12, opacity: 0.65, textAlign: "center" }}>
+                左右にスワイプすると「リスト ⇄ 本文」を移動できます
+              </div>
+            )}
           </div>
         </div>
       )}
