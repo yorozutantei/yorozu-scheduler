@@ -1,5 +1,6 @@
 "use client";
 
+import type React from "react";
 import { useEffect, useMemo, useRef, useState } from "react";
 import { Calendar as RBCalendar, dateFnsLocalizer, View } from "react-big-calendar";
 import withDragAndDrop from "react-big-calendar/lib/addons/dragAndDrop";
@@ -163,58 +164,31 @@ type UndoPayload =
   | { kind: "todo"; row: TodoRow };
 
 export default function CalendarPage() {
-  // ===== 横スワイプ用（スマホ） =====
-  const scrollerRef = useRef<HTMLDivElement>(null);
+  // ===== レイアウト定数 =====
   const SIDEBAR_W = 360;
   const CALENDAR_MIN_W = 980;
-  // ★ 横スワイプ制御用
-const swipeRef = useRef({
-  active: false,
-  startX: 0,
-  startY: 0,
-  startLeft: 0,
-  locked: false,
-});
 
-function onTouchStartScroller(e: React.TouchEvent<HTMLDivElement>) {
-  const el = scrollerRef.current;
-  if (!el) return;
+  /**
+   * ✅ 2階建てスクロール構造
+   * - 縦スクロール：outer（scrollerRef）が担当（overflowY:auto）
+   * - 横スクロール：mobile の時だけ outer が担当（overflowX:auto）
+   *
+   * こうしないと、横スクロール用に overflowY:hidden をやると
+   * 「月表示の最終週が切れる」問題が必ず出ます。
+   */
+  const scrollerRef = useRef<HTMLDivElement>(null);
 
-  const t = e.touches[0];
-  swipeRef.current.active = true;
-  swipeRef.current.locked = false;
-  swipeRef.current.startX = t.clientX;
-  swipeRef.current.startY = t.clientY;
-  swipeRef.current.startLeft = el.scrollLeft;
-}
+  // ★ 横スワイプ制御（モバイルのみ）
+  const swipeRef = useRef({
+    active: false,
+    startX: 0,
+    startY: 0,
+    startLeft: 0,
+    locked: false,
+  });
 
-function onTouchMoveScroller(e: React.TouchEvent<HTMLDivElement>) {
-  const el = scrollerRef.current;
-  if (!el) return;
-  if (!swipeRef.current.active) return;
-
-  const t = e.touches[0];
-  const dx = t.clientX - swipeRef.current.startX;
-  const dy = t.clientY - swipeRef.current.startY;
-
-  if (!swipeRef.current.locked) {
-    if (Math.abs(dx) > 10 && Math.abs(dx) > Math.abs(dy) * 1.2) {
-      swipeRef.current.locked = true;
-    } else {
-      return;
-    }
-  }
-
-  e.preventDefault();
-  el.scrollLeft = swipeRef.current.startLeft - dx;
-}
-
-function onTouchEndScroller() {
-  swipeRef.current.active = false;
-  swipeRef.current.locked = false;
-}
-
-  const scrollToCalendar = () => scrollerRef.current?.scrollTo({ left: SIDEBAR_W, behavior: "smooth" });
+  const scrollToCalendar = () =>
+    scrollerRef.current?.scrollTo({ left: SIDEBAR_W, behavior: "smooth" });
   const scrollToSidebar = () => scrollerRef.current?.scrollTo({ left: 0, behavior: "smooth" });
 
   // ===== Auth =====
@@ -236,13 +210,13 @@ function onTouchEndScroller() {
   const [currentDate, setCurrentDate] = useState<Date>(new Date());
 
   // ★スマホ判定（DnDがスクロールを邪魔する対策）
-const isMobile = useMemo(() => {
-  if (!mounted) return false;
-  return window.matchMedia("(max-width: 767px)").matches;
-}, [mounted]);
+  const isMobile = useMemo(() => {
+    if (!mounted) return false;
+    return window.matchMedia("(max-width: 767px)").matches;
+  }, [mounted]);
 
-// ★スマホは通常カレンダー、PCはDnDカレンダー
-const CalendarComp: any = isMobile ? RBCalendar : DnDCalendar;
+  // ★スマホは通常カレンダー、PCはDnDカレンダー
+  const CalendarComp: any = isMobile ? RBCalendar : DnDCalendar;
 
   // ===== 予定 =====
   const [scheduleEvents, setScheduleEvents] = useState<CalendarEventSchedule[]>([]);
@@ -385,60 +359,66 @@ const CalendarComp: any = isMobile ? RBCalendar : DnDCalendar;
     })();
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
+
+  // ====== 横スワイプ（モバイル時だけ）=====
   useEffect(() => {
-  const el = scrollerRef.current;
-  if (!el) return;
+    const el = scrollerRef.current;
+    if (!el) return;
+    if (!isMobile) return; // ✅ PCでは横スワイプ制御自体を無効化（デッドスペース防止）
 
-  const state = swipeRef.current;
+    const state = swipeRef.current;
 
-  const onStart = (e: TouchEvent) => {
-    const t = e.touches[0];
-    if (!t) return;
+    const onStart = (e: TouchEvent) => {
+      const t = e.touches[0];
+      if (!t) return;
 
-    state.active = true;
-    state.locked = false;
-    state.startX = t.clientX;
-    state.startY = t.clientY;
-    state.startLeft = el.scrollLeft;
-  };
+      state.active = true;
+      state.locked = false;
+      state.startX = t.clientX;
+      state.startY = t.clientY;
+      state.startLeft = el.scrollLeft;
+    };
 
-  const onMove = (e: TouchEvent) => {
-    if (!state.active) return;
-    const t = e.touches[0];
-    if (!t) return;
+    const onMove = (e: TouchEvent) => {
+      if (!state.active) return;
+      const t = e.touches[0];
+      if (!t) return;
 
-    const dx = t.clientX - state.startX;
-    const dy = t.clientY - state.startY;
+      const dx = t.clientX - state.startX;
+      const dy = t.clientY - state.startY;
 
-    if (!state.locked) {
-      if (Math.abs(dx) > 10 && Math.abs(dx) > Math.abs(dy) * 1.2) {
-        state.locked = true;
-      } else {
-        return;
+      // 横が明確に優勢な時だけ「横スクロール」にロック
+      if (!state.locked) {
+        if (Math.abs(dx) > 10 && Math.abs(dx) > Math.abs(dy) * 1.2) {
+          state.locked = true;
+        } else {
+          // 縦が主：ここでは止めない（ブラウザの縦スクロールへ通す）
+          return;
+        }
       }
-    }
 
-    e.preventDefault();
-    el.scrollLeft = state.startLeft - dx;
-  };
+      // 横ロック中だけ preventDefault（縦スクロールを邪魔しない）
+      e.preventDefault();
+      el.scrollLeft = state.startLeft - dx;
+    };
 
-  const onEnd = () => {
-    state.active = false;
-    state.locked = false;
-  };
+    const onEnd = () => {
+      state.active = false;
+      state.locked = false;
+    };
 
-  el.addEventListener("touchstart", onStart, { passive: true });
-  el.addEventListener("touchmove", onMove, { passive: false }); // ★重要
-  el.addEventListener("touchend", onEnd, { passive: true });
-  el.addEventListener("touchcancel", onEnd, { passive: true });
+    el.addEventListener("touchstart", onStart, { passive: true });
+    el.addEventListener("touchmove", onMove, { passive: false }); // ★横ロック時に preventDefault するため
+    el.addEventListener("touchend", onEnd, { passive: true });
+    el.addEventListener("touchcancel", onEnd, { passive: true });
 
-  return () => {
-    el.removeEventListener("touchstart", onStart);
-    el.removeEventListener("touchmove", onMove);
-    el.removeEventListener("touchend", onEnd);
-    el.removeEventListener("touchcancel", onEnd);
-  };
-}, []);
+    return () => {
+      el.removeEventListener("touchstart", onStart);
+      el.removeEventListener("touchmove", onMove);
+      el.removeEventListener("touchend", onEnd);
+      el.removeEventListener("touchcancel", onEnd);
+    };
+  }, [isMobile]);
 
   // ====== 2) 表示中日付に合わせて「向こう1年」範囲を取得 ======
   useEffect(() => {
@@ -564,7 +544,9 @@ const CalendarComp: any = isMobile ? RBCalendar : DnDCalendar;
         updated_at: new Date().toISOString(),
       };
 
-      const { error } = await supabase.from("monthly_dashboard").upsert(payload, { onConflict: "month" });
+      const { error } = await supabase
+        .from("monthly_dashboard")
+        .upsert(payload, { onConflict: "month" });
 
       if (error) {
         console.error("monthly autosave失敗:", error);
@@ -656,7 +638,9 @@ const CalendarComp: any = isMobile ? RBCalendar : DnDCalendar;
         description: r.description ?? "",
       };
 
-      setScheduleEvents((prev) => [...prev, newEvent].sort((a, b) => a.start.getTime() - b.start.getTime()));
+      setScheduleEvents((prev) =>
+        [...prev, newEvent].sort((a, b) => a.start.getTime() - b.start.getTime())
+      );
       closeModal();
       return;
     }
@@ -1034,7 +1018,6 @@ const CalendarComp: any = isMobile ? RBCalendar : DnDCalendar;
   // 🔒 ログインチェック
   if (!authChecked) return null;
   if (!isLoggedIn) {
-    // render中にlocation書き換えは荒いけど、いったん初心者向けにそのまま
     window.location.href = "/login";
     return null;
   }
@@ -1070,29 +1053,41 @@ const CalendarComp: any = isMobile ? RBCalendar : DnDCalendar;
     cursor: "pointer",
   } as const;
 
+  // ===== レイアウト切り替え値 =====
+  const boardWidth = isMobile ? SIDEBAR_W + CALENDAR_MIN_W : "100%";
+  const mainMinWidth = isMobile ? CALENDAR_MIN_W : 0;
+
   return (
-    <div style={{ height: "100%", width: "100%", overflow: "hidden", background: "#fff" }}>
-      {/* ✅ “横スクロールを担当する層” */}
+    <div
+      style={{
+        height: "100dvh",
+        width: "100%",
+        background: "#fff",
+        overflow: "hidden", // ✅ 最外は固定（中でスクロールを管理）
+      }}
+    >
+      {/* ✅ 1階：縦スクロール担当（ここが重要） */}
       <div
         ref={scrollerRef}
         style={{
           height: "100%",
           width: "100%",
-          overflowX: "scroll",
-          overflowY: "hidden",
+          overflowY: "auto", // ✅ 縦スクロールを殺さない
+          overflowX: isMobile ? "auto" : "hidden", // ✅ PCは横スクロールを無効化 → デッドスペース消える
           WebkitOverflowScrolling: "touch",
           overscrollBehaviorX: "contain",
-          touchAction: "pan-x pan-y",
           background: "#fff",
+          touchAction: isMobile ? "pan-y" : "auto", // ✅ 縦は常に許可
         }}
       >
-        {/* ✅ 中身を“横に長い板”にする（ここが最重要） */}
+        {/* ✅ 2階：横に長いボード（mobileだけ固定幅） */}
         <div
           style={{
             display: "flex",
-            height: "100%",
-            width: SIDEBAR_W + CALENDAR_MIN_W, // 1340px
-            minWidth: "100%", // PCでは画面幅以上
+            minHeight: "100%",
+            width: boardWidth as any,
+            minWidth: "100%",
+            background: "#fff",
           }}
         >
           {/* 左：サイドバー */}
@@ -1102,9 +1097,9 @@ const CalendarComp: any = isMobile ? RBCalendar : DnDCalendar;
               minWidth: SIDEBAR_W,
               borderRight: "1px solid #eee",
               padding: 12,
-              overflow: "auto",
               background: "#fafafa",
-              touchAction: "pan-y",
+              // ✅ サイドバー内の縦スクロールもOK（outerと競合しにくい）
+              overflow: "auto",
             }}
           >
             {/* 🔥 今日 */}
@@ -1167,7 +1162,14 @@ const CalendarComp: any = isMobile ? RBCalendar : DnDCalendar;
                 placeholder="例：毎日ショート投稿 / 配信の安定化 / 体調管理…"
               />
               <div style={{ marginTop: 6, fontSize: 12, opacity: 0.7 }}>
-                保存状態：{saveState === "saving" ? "保存中…" : saveState === "saved" ? "保存済" : saveState === "error" ? "エラー" : "待機"}
+                保存状態：
+                {saveState === "saving"
+                  ? "保存中…"
+                  : saveState === "saved"
+                  ? "保存済"
+                  : saveState === "error"
+                  ? "エラー"
+                  : "待機"}
               </div>
             </div>
 
@@ -1314,17 +1316,18 @@ const CalendarComp: any = isMobile ? RBCalendar : DnDCalendar;
                 </div>
               </div>
             </div>
-
           </aside>
 
           {/* 右：カレンダー */}
           <main
             style={{
-              width: CALENDAR_MIN_W,
-              minWidth: CALENDAR_MIN_W,
+              flex: "1 1 auto",
+              minWidth: mainMinWidth,
               padding: 12,
               position: "relative",
               background: "#fff",
+              // ✅ main 自体も縦スクロールできる（モバイルで最後の週が切れても救える）
+              overflow: "auto",
             }}
           >
             <div style={{ marginBottom: 10, display: "flex", gap: 10, alignItems: "center", flexWrap: "wrap" }}>
@@ -1363,18 +1366,29 @@ const CalendarComp: any = isMobile ? RBCalendar : DnDCalendar;
                 )}
               </select>
 
-              {/* スマホ補助ボタン（不要なら消してOK） */}
-              <div style={{ marginLeft: "auto", display: "flex", gap: 8 }}>
-                <button onClick={scrollToSidebar} style={btnStyle} title="左へ（メニュー）">
-                  ←
-                </button>
-                <button onClick={scrollToCalendar} style={btnStyle} title="右へ（カレンダー）">
-                  →
-                </button>
-              </div>
+              {/* スマホ補助ボタン */}
+              {isMobile && (
+                <div style={{ marginLeft: "auto", display: "flex", gap: 8 }}>
+                  <button onClick={scrollToSidebar} style={btnStyle} title="左へ（メニュー）">
+                    ←
+                  </button>
+                  <button onClick={scrollToCalendar} style={btnStyle} title="右へ（カレンダー）">
+                    →
+                  </button>
+                </div>
+              )}
             </div>
 
-            <div style={{ height: "calc(100dvh - 140px)", minHeight: 520 }}>
+            {/* ✅ ここが「最後の週が見れない」を潰すポイント
+                - PC: ビューポートに合わせて固定高さでOK
+                - mobile: height を max() で“最低高さ”を確保し、足りない分は main が縦スクロール
+            */}
+            <div
+              style={{
+                height: isMobile ? "max(640px, calc(100dvh - 140px))" : "calc(100dvh - 140px)",
+                minHeight: 520,
+              }}
+            >
               <CalendarComp
                 localizer={localizer}
                 events={allEvents}
@@ -1429,7 +1443,7 @@ const CalendarComp: any = isMobile ? RBCalendar : DnDCalendar;
                   return { style: { background: TODAY_CELL_BG } };
                 }}
                 eventPropGetter={(event: CalendarEvent) => {
-  const ev = event;
+                  const ev = event;
 
                   if (ev.kind === "todo") {
                     const isToday = ev.due_date === todayYmd();
@@ -1766,7 +1780,15 @@ const CalendarComp: any = isMobile ? RBCalendar : DnDCalendar;
                       <div style={{ fontWeight: 900, fontSize: 13, marginBottom: 4 }}>
                         {n.title || "(no title)"}
                       </div>
-                      <div style={{ fontSize: 12, opacity: 0.7, whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>
+                      <div
+                        style={{
+                          fontSize: 12,
+                          opacity: 0.7,
+                          whiteSpace: "nowrap",
+                          overflow: "hidden",
+                          textOverflow: "ellipsis",
+                        }}
+                      >
                         {n.content || ""}
                       </div>
                     </div>
@@ -1828,9 +1850,7 @@ const CalendarComp: any = isMobile ? RBCalendar : DnDCalendar;
             boxShadow: "0 20px 60px rgba(0,0,0,0.25)",
           }}
         >
-          <div style={{ fontWeight: 800, fontSize: 13 }}>
-            削除しました（5秒以内に取り消せます）
-          </div>
+          <div style={{ fontWeight: 800, fontSize: 13 }}>削除しました（5秒以内に取り消せます）</div>
           <button onClick={undoDelete} style={{ ...btnStyle, background: "#fff" }}>
             Undo
           </button>
