@@ -1416,7 +1416,7 @@ const CalendarComp: any = isMobile ? RBCalendar : DnDCalendar;
                 resizableresizable={!isMobile}
                 views={["month", "week", "day", "agenda"]}
                 view={view}
-                onView={(v) => setView(v)}
+                onView={(v: View) => setView(v)}
                 date={currentDate}
                 onNavigate={(d) => setCurrentDate(d)}
                 onSelectSlot={onSelectSlot}
