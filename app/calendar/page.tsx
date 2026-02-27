@@ -1413,7 +1413,7 @@ const CalendarComp: any = isMobile ? RBCalendar : DnDCalendar;
                 endAccessor={(e: any) => e.end}
                 culture="ja"
                 selectable
-                resizableresizable={!isMobile}
+                resizable={!isMobile}
                 views={["month", "week", "day", "agenda"]}
                 view={view}
                 onView={(v: View) => setView(v)}
@@ -1423,13 +1423,13 @@ const CalendarComp: any = isMobile ? RBCalendar : DnDCalendar;
                 onSelectEvent={onSelectEvent}
                 onEventDrop={isMobile ? undefined : onEventDrop}
                 onEventResize={isMobile ? undefined : onEventResize}
-                dayPropGetter={(date) => {
+                dayPropGetter={(date: Date) => {
                   const isToday = toYmdLocal(date) === todayYmd();
                   if (!isToday) return {};
                   return { style: { background: TODAY_CELL_BG } };
                 }}
-                eventPropGetter={(event: any) => {
-                  const ev = event as CalendarEvent;
+                eventPropGetter={(event: CalendarEvent) => {
+  const ev = event;
 
                   if (ev.kind === "todo") {
                     const isToday = ev.due_date === todayYmd();
