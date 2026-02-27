@@ -107,6 +107,23 @@ const localizer = dateFnsLocalizer({
   locales,
 });
 
+ const messages = {
+  date: "日付",
+  time: "時間",
+  event: "予定",
+  allDay: "終日",
+  week: "週",
+  work_week: "平日",
+  day: "日",
+  month: "月",
+  previous: "前月へ",
+  next: "翌月へ",
+  yesterday: "昨日",
+  tomorrow: "明日",
+  today: "今日",
+  agenda: "一覧",
+  noEventsInRange: "この期間に予定はありません",
+};
 const DnDCalendar = withDragAndDrop(RBCalendar);
 
 function DateHeader({ date }: { date: Date }) {
@@ -1415,6 +1432,7 @@ export default function CalendarPage() {
             >
               <CalendarComp
                 localizer={localizer}
+                messages={messages}
                 events={allEvents}
                 components={{
                   month: { dateHeader: DateHeader },
