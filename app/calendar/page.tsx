@@ -1418,7 +1418,7 @@ const CalendarComp: any = isMobile ? RBCalendar : DnDCalendar;
                 view={view}
                 onView={(v: View) => setView(v)}
                 date={currentDate}
-                onNavigate={(d) => setCurrentDate(d)}
+                onNavigate={(d: Date) => setCurrentDate(d)}
                 onSelectSlot={onSelectSlot}
                 onSelectEvent={onSelectEvent}
                 onEventDrop={isMobile ? undefined : onEventDrop}
