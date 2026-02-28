@@ -66,6 +66,13 @@ type MonthlyRow = {
   updated_at?: string;
 };
 
+type YearlyGoalRow = {
+  year: number; // 2026
+  content: string;
+  updated_at?: string;
+  created_at?: string;
+};
+
 type SharedNoteRow = {
   id: string; // uuid
   title: string;
@@ -107,7 +114,7 @@ const localizer = dateFnsLocalizer({
   locales,
 });
 
- const messages = {
+const messages = {
   date: "日付",
   time: "時間",
   event: "予定",
@@ -124,6 +131,7 @@ const localizer = dateFnsLocalizer({
   agenda: "一覧",
   noEventsInRange: "この期間に予定はありません",
 };
+
 const DnDCalendar = withDragAndDrop(RBCalendar);
 
 function DateHeader({ date }: { date: Date }) {
@@ -244,6 +252,23 @@ export default function CalendarPage() {
 
   const openTodos = useMemo(() => todos.filter((t) => t.status !== "done"), [todos]);
 
+  // ===== 年間目標（今年）=====
+  const [currentYear, setCurrentYear] = useState<number>(new Date().getFullYear());
+  const [yearlyGoal, setYearlyGoal] = useState<string>("");
+  const [yearlySaveState, setYearlySaveState] = useState<"idle" | "saving" | "saved" | "error">("idle");
+  const yearlyAutosaveTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const yearlyReadyRef = useRef(false);
+
+  // 年が変わったら自動で切り替える（ページ開きっぱなし対策）
+  useEffect(() => {
+    if (!mounted) return;
+    const timer = setInterval(() => {
+      const y = new Date().getFullYear();
+      setCurrentYear((prev) => (prev === y ? prev : y));
+    }, 60 * 60 * 1000); // 1時間ごと
+    return () => clearInterval(timer);
+  }, [mounted]);
+
   // ===== 月間（目標 + やるべきこと）=====
   const [monthlyGoal, setMonthlyGoal] = useState("");
   const [monthlyMust, setMonthlyMust] = useState<MustItem[]>([]);
@@ -325,7 +350,7 @@ export default function CalendarPage() {
     return m?.color || DEFAULT_COLOR;
   }
 
-  // 今日枠
+  // 今日枠（※ロジックは残す：他の場所で使いたくなってもOK）
   const todayOpenTodos = useMemo(() => {
     const t = todayYmd();
     return openTodos.filter((x) => (x.due_date ?? "") === t);
@@ -505,7 +530,81 @@ export default function CalendarPage() {
     })();
   }, [currentDate, mounted]);
 
-  // ====== 3) 月間（目標/やるべきこと）: 表示中の月に紐づけ ======
+  // ====== 3) 年間目標：currentYear に紐づけ ======
+  useEffect(() => {
+    if (!mounted) return;
+
+    (async () => {
+      yearlyReadyRef.current = false;
+
+      const yk = String(currentYear);
+      const draftKey = `yearly_goal_draft:${yk}`;
+
+      // 0) ローカル下書き
+      const draft = localStorage.getItem(draftKey) ?? "";
+      setYearlyGoal(draft);
+
+      // 1) DB
+      const { data, error } = await supabase
+        .from("yearly_goals")
+        .select("*")
+        .eq("year", currentYear)
+        .maybeSingle();
+
+      if (error) console.error("yearly_goals取得エラー:", error);
+
+      if (data) {
+        const row = data as YearlyGoalRow;
+        setYearlyGoal((prev) => (prev.trim() ? prev : row.content ?? ""));
+        setYearlySaveState("saved");
+      } else {
+        setYearlySaveState("idle");
+      }
+
+      yearlyReadyRef.current = true;
+    })();
+  }, [currentYear, mounted]);
+
+  // 年間目標：下書き保存（year）
+  useEffect(() => {
+    if (!mounted) return;
+    const yk = String(currentYear);
+    localStorage.setItem(`yearly_goal_draft:${yk}`, yearlyGoal);
+  }, [yearlyGoal, currentYear, mounted]);
+
+  // 年間目標：DB自動保存（year）
+  useEffect(() => {
+    if (!mounted) return;
+    if (!yearlyReadyRef.current) return;
+
+    if (yearlyAutosaveTimer.current) clearTimeout(yearlyAutosaveTimer.current);
+    setYearlySaveState("saving");
+
+    yearlyAutosaveTimer.current = setTimeout(async () => {
+      const payload = {
+        year: currentYear,
+        content: yearlyGoal,
+        updated_at: new Date().toISOString(),
+      };
+
+      const { error } = await supabase
+        .from("yearly_goals")
+        .upsert(payload, { onConflict: "year" });
+
+      if (error) {
+        console.error("yearly_goal autosave失敗:", error);
+        setYearlySaveState("error");
+        return;
+      }
+      setYearlySaveState("saved");
+    }, 1200);
+
+    return () => {
+      if (yearlyAutosaveTimer.current) clearTimeout(yearlyAutosaveTimer.current);
+    };
+  }, [yearlyGoal, currentYear, mounted]);
+
+  // ====== 4) 月間（目標/やるべきこと）: 表示中の月に紐づけ ======
   useEffect(() => {
     if (!mounted) return;
 
@@ -1145,47 +1244,43 @@ export default function CalendarPage() {
               overflow: "auto",
             }}
           >
-            {/* 🔥 今日 */}
+            {/* 🎯 今年の目標（今日カードの置き換え） */}
             <div style={{ ...cardStyle, marginBottom: 12 }}>
-              <div style={cardTitleStyle}>🔥 今日（{todayYmd()}）</div>
+              <div style={cardTitleStyle}>🎯 今年の目標（{currentYear}）</div>
 
-              <div style={{ fontSize: 12, opacity: 0.75, marginBottom: 8 }}>
-                期限切れ：{overdueCount} 件 / 今日：{todayOpenTodos.length} 件
+              <textarea
+                value={yearlyGoal}
+                onChange={(e) => setYearlyGoal(e.target.value)}
+                style={{
+                  width: "100%",
+                  minHeight: 120,
+                  padding: 10,
+                  resize: "vertical",
+                  borderRadius: 12,
+                  border: "1px solid #e5e7eb",
+                }}
+                placeholder="例：毎日ショート投稿 / 配信の安定化 / note週2本 / 収益目標…"
+              />
+
+              <div style={{ marginTop: 6, fontSize: 12, opacity: 0.7 }}>
+                保存状態：
+                {yearlySaveState === "saving"
+                  ? "保存中…"
+                  : yearlySaveState === "saved"
+                  ? "保存済"
+                  : yearlySaveState === "error"
+                  ? "エラー"
+                  : "待機"}
               </div>
 
-              {todayOpenTodos.length === 0 ? (
-                <div style={{ opacity: 0.6, fontSize: 13 }}>今日のToDoはありません</div>
-              ) : (
-                <div style={{ display: "grid", gap: 8 }}>
-                  {todayOpenTodos.map((t) => (
-                    <div
-                      key={t.id}
-                      style={{
-                        border: "1px solid #eee",
-                        borderRadius: 12,
-                        padding: 10,
-                        background: "#fff",
-                        display: "grid",
-                        gap: 6,
-                      }}
-                    >
-                      <div style={{ fontWeight: 900 }}>{t.title}</div>
-                      <div style={{ fontSize: 12, opacity: 0.7 }}>{t.assignee ?? "未設定"}</div>
-                      <div style={{ display: "flex", gap: 8, justifyContent: "flex-end" }}>
-                        <button onClick={() => toggleTodoQuick(t.id, t.status)} style={btnStyle}>
-                          完了
-                        </button>
-                        <button
-                          onClick={() => openTodoEditModalById(t.id)}
-                          style={{ ...btnStyle, background: "#f3f4f6" }}
-                        >
-                          編集
-                        </button>
-                      </div>
-                    </div>
-                  ))}
-                </div>
-              )}
+              <div style={{ marginTop: 6, fontSize: 12, opacity: 0.65 }}>
+                ※ 年が変わると自動で来年（{currentYear + 1}）の目標に切り替わり、別データとして保存されます。
+              </div>
+
+              {/* 参考情報（任意）：今日のToDo概要は消したくないならここで復活できる */}
+              <div style={{ marginTop: 10, fontSize: 12, opacity: 0.55 }}>
+                （参考）期限切れ：{overdueCount} / 今日：{todayOpenTodos.length}
+              </div>
             </div>
 
             {/* 📌 目標 */}
