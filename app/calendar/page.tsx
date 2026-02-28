@@ -1261,7 +1261,7 @@ export default function CalendarPage() {
                 }}
                 placeholder="例：毎日ショート投稿 / 配信の安定化 / note週2本 / 収益目標…"
               />
-
+            </div>
             {/* 📌 目標 */}
             <div style={{ ...cardStyle, marginBottom: 12 }}>
               <div style={cardTitleStyle}>📌 今月の目標（{monthKey(currentDate).slice(0, 7)}）</div>
