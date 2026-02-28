@@ -1262,27 +1262,6 @@ export default function CalendarPage() {
                 placeholder="例：毎日ショート投稿 / 配信の安定化 / note週2本 / 収益目標…"
               />
 
-              <div style={{ marginTop: 6, fontSize: 12, opacity: 0.7 }}>
-                保存状態：
-                {yearlySaveState === "saving"
-                  ? "保存中…"
-                  : yearlySaveState === "saved"
-                  ? "保存済"
-                  : yearlySaveState === "error"
-                  ? "エラー"
-                  : "待機"}
-              </div>
-
-              <div style={{ marginTop: 6, fontSize: 12, opacity: 0.65 }}>
-                ※ 年が変わると自動で来年（{currentYear + 1}）の目標に切り替わり、別データとして保存されます。
-              </div>
-
-              {/* 参考情報（任意）：今日のToDo概要は消したくないならここで復活できる */}
-              <div style={{ marginTop: 10, fontSize: 12, opacity: 0.55 }}>
-                （参考）期限切れ：{overdueCount} / 今日：{todayOpenTodos.length}
-              </div>
-            </div>
-
             {/* 📌 目標 */}
             <div style={{ ...cardStyle, marginBottom: 12 }}>
               <div style={cardTitleStyle}>📌 今月の目標（{monthKey(currentDate).slice(0, 7)}）</div>
